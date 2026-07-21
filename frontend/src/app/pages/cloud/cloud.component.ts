@@ -28,6 +28,7 @@ import { FolderContentItemDto } from '../../models/dtos/FolderContentItemDto';
 import { SearchResultDto } from '../../models/dtos/SearchResultDto';
 import { ScanJobDto } from '../../models/dtos/ScanJobDto';
 import { FileScanResultDto } from '../../models/dtos/FileScanResultDto';
+import { FileChecksumDto } from '../../models/dtos/FileChecksumDto';
 import { CloudService } from '../../services/cloud.service';
 import { finalize, firstValueFrom } from 'rxjs';
 import { UiToastService } from '../../core/services/ui-toast.service';
@@ -128,6 +129,14 @@ export class CloudComponent implements OnInit, OnDestroy {
   // callbacks compare against it and bail if they've been superseded (mirrors
   // the contentRequestId guard used for folder loads/searches).
   private scanRunId = 0;
+
+  showChecksumDialog = false;
+  checksumLoading = false;
+  checksumError?: string;
+  checksumResult?: FileChecksumDto;
+  selectedFileForChecksum?: { name: string; path: string } | null;
+  expectedHash = '';
+  copiedHashState = false;
 
   pageSize = 50;
   totalElements = 0;
@@ -1273,5 +1282,54 @@ export class CloudComponent implements OnInit, OnDestroy {
     } else {
       this.downloadFile(file);
     }
+  }
+
+  openChecksumDialog(file: { path: string; name: string }): void {
+    this.selectedFileForChecksum = { name: file.name, path: file.path };
+    this.showChecksumDialog = true;
+    this.checksumLoading = true;
+    this.checksumError = undefined;
+    this.checksumResult = undefined;
+    this.expectedHash = '';
+    this.copiedHashState = false;
+
+    const relativePath = this.getRelativePath(file.path);
+    this.cloudService.getFileChecksum(relativePath).subscribe({
+      next: (result) => {
+        this.checksumResult = result;
+        this.checksumLoading = false;
+      },
+      error: (err) => {
+        this.checksumLoading = false;
+        const msg = this.getErrorMessage(err);
+        this.checksumError = msg;
+        this.toast.error('Checksum Calculation Failed', msg);
+      },
+    });
+  }
+
+  copyChecksumToClipboard(): void {
+    if (!this.checksumResult?.checksum) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(this.checksumResult.checksum)
+        .catch(() => {});
+    }
+    this.copiedHashState = true;
+    this.toast.success(
+      'Checksum Copied',
+      'SHA-256 checksum copied to clipboard.',
+    );
+    setTimeout(() => {
+      this.copiedHashState = false;
+    }, 2000);
+  }
+
+  get hashMatchStatus(): 'empty' | 'match' | 'mismatch' {
+    if (!this.expectedHash || !this.expectedHash.trim()) return 'empty';
+    if (!this.checksumResult?.checksum) return 'empty';
+    const expected = this.expectedHash.trim().toLowerCase();
+    const computed = this.checksumResult.checksum.trim().toLowerCase();
+    return expected === computed ? 'match' : 'mismatch';
   }
 }

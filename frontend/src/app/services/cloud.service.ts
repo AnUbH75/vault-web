@@ -1,12 +1,13 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { FolderDto } from '../models/dtos/FolderDto';
 import { FolderContentItemDto } from '../models/dtos/FolderContentItemDto';
 import { PageResponseDto } from '../models/dtos/PageResponseDto';
 import { TrashEntryDto } from '../models/dtos/TrashEntryDto';
 import { SearchResultDto } from '../models/dtos/SearchResultDto';
 import { ScanJobDto } from '../models/dtos/ScanJobDto';
+import { FileChecksumDto } from '../models/dtos/FileChecksumDto';
 import { environment } from '../../environments/environment';
 
 @Injectable({
@@ -185,5 +186,36 @@ export class CloudService {
     return this.http.get<ScanJobDto>(
       `${this.apiUrl}/files/scan/${encodeURIComponent(jobId)}`,
     );
+  }
+
+  getFileChecksum(filePath: string): Observable<FileChecksumDto> {
+    const normPath = this.normalizePath(filePath);
+    const params = new HttpParams().set('path', normPath);
+    return this.http
+      .get<unknown>(`${this.apiUrl}/files/checksum`, { params })
+      .pipe(
+        map((res) => {
+          const raw = res as
+            | {
+                checksum?: string;
+                hash?: string;
+                sha256?: string;
+                value?: string;
+                algorithm?: string;
+              }
+            | string;
+          const checksum =
+            typeof raw === 'string'
+              ? raw
+              : raw?.checksum || raw?.hash || raw?.sha256 || raw?.value || '';
+          const algorithm =
+            (typeof raw === 'object' && raw?.algorithm) || 'SHA-256';
+          return {
+            filePath: normPath,
+            checksum,
+            algorithm,
+          };
+        }),
+      );
   }
 }
