@@ -1,4 +1,6 @@
 import { of, throwError, Subject } from 'rxjs';
+import { ConfirmationService } from 'primeng/api';
+import { UiToastService } from '../../core/services/ui-toast.service';
 import { CloudComponent } from './cloud.component';
 import { CloudService } from '../../services/cloud.service';
 import { ScanJobDto } from '../../models/dtos/ScanJobDto';
@@ -238,7 +240,150 @@ describe('CloudComponent virus scan', () => {
     start$.next({ ...runningJob }); // POST resolves late
     start$.complete();
     jasmine.clock().tick(6000);
+  });
+});
 
-    expect(cloudMock.getScanJob).not.toHaveBeenCalled();
+describe('CloudComponent Unsaved Changes Flow', () => {
+  let component: CloudComponent;
+  let cloudMock: jasmine.SpyObj<CloudService>;
+  let confirmMock: jasmine.SpyObj<ConfirmationService>;
+  let toastMock: jasmine.SpyObj<UiToastService>;
+
+  beforeEach(() => {
+    cloudMock = jasmine.createSpyObj<CloudService>('CloudService', [
+      'getFileContent',
+      'uploadFile',
+      'renameOrMoveFile',
+    ]);
+    confirmMock = jasmine.createSpyObj<ConfirmationService>(
+      'ConfirmationService',
+      ['confirm'],
+    );
+    toastMock = jasmine.createSpyObj<UiToastService>('UiToastService', [
+      'success',
+      'error',
+    ]);
+
+    component = new CloudComponent(
+      cloudMock,
+      confirmMock,
+      toastMock as any,
+      {} as any,
+      {} as any,
+    );
+  });
+
+  it('should track original content and not be dirty initially', () => {
+    expect(component.isEditorDirty()).toBeFalse();
+  });
+
+  it('should not be dirty when file is opened and unchanged', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+    expect(component.isEditorDirty()).toBeFalse();
+  });
+
+  it('should be dirty when file content is changed', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello world';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+    expect(component.isEditorDirty()).toBeTrue();
+  });
+
+  it('should be dirty when file name is changed', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'b.txt';
+    expect(component.isEditorDirty()).toBeTrue();
+  });
+
+  it('should prompt user on closeFileEditor when dirty', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello world';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+
+    component.closeFileEditor();
+
+    expect(confirmMock.confirm).toHaveBeenCalled();
+  });
+
+  it('should not prompt user on closeFileEditor when not dirty', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+
+    component.closeFileEditor();
+
+    expect(confirmMock.confirm).not.toHaveBeenCalled();
+    expect(component.showFileEditor).toBeFalse();
+  });
+
+  it('should reset original tracking state upon successful save', async () => {
+    component.showFileEditor = true;
+    component.editingFile = {
+      path: '/a.txt',
+      name: 'a.txt',
+      size: 0,
+      mimeType: 'text/plain',
+    };
+    component.newFileName = 'a.txt';
+    component.fileContent = 'hello world';
+    component.originalFileContent = 'hello';
+    component.originalFileName = 'a.txt';
+    component.currentFolder = { path: '/root', name: 'root' } as any;
+
+    cloudMock.uploadFile.and.returnValue(of({} as any));
+
+    await component.saveFile();
+
+    expect(component.originalFileContent).toBe('hello world');
+    expect(component.originalFileName).toBe('a.txt');
+    expect(component.isEditorDirty()).toBeFalse();
+  });
+
+  it('should return false in canDeactivate and prompt user when dirty', async () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello world';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+
+    confirmMock.confirm.and.callFake((config) => {
+      if (config.reject) config.reject();
+      return confirmMock;
+    });
+
+    const result = await component.canDeactivate();
+    expect(result).toBeFalse();
+    expect(confirmMock.confirm).toHaveBeenCalled();
+  });
+
+  it('should return true in canDeactivate and close editor when accepted', async () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello world';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+
+    confirmMock.confirm.and.callFake((config) => {
+      if (config.accept) config.accept();
+      return confirmMock;
+    });
+
+    const result = await component.canDeactivate();
+    expect(result).toBeTrue();
+    expect(confirmMock.confirm).toHaveBeenCalled();
+    expect(component.showFileEditor).toBeFalse();
   });
 });

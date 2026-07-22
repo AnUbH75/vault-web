@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import {
   Component,
   ElementRef,
+  HostListener,
   OnDestroy,
   OnInit,
   ViewChild,
@@ -87,6 +88,8 @@ export class CloudComponent implements OnInit, OnDestroy {
   editingFile: FileDto | null = null;
   newFileName = '';
   fileContent = '';
+  originalFileContent = '';
+  originalFileName = '';
   editorMode: 'edit' | 'preview' | 'split' = 'edit';
   previewHtml: SafeHtml = '';
 
@@ -666,6 +669,8 @@ export class CloudComponent implements OnInit, OnDestroy {
     this.editingFile = null;
     this.newFileName = '';
     this.fileContent = '';
+    this.originalFileName = '';
+    this.originalFileContent = '';
     this.editorMode = 'edit';
     this.previewHtml = '';
     this.showFileEditor = true;
@@ -715,6 +720,8 @@ export class CloudComponent implements OnInit, OnDestroy {
 
     this.cloudService.getFileContent(relativePath).subscribe({
       next: (content) => {
+        this.originalFileName = file.name;
+        this.originalFileContent = content;
         this.fileContent = content;
         this.editorMode = 'edit';
         this.updatePreview();
@@ -750,6 +757,10 @@ export class CloudComponent implements OnInit, OnDestroy {
       const fileBlob = new Blob([this.fileContent], { type: 'text/plain' });
       const file = new File([fileBlob], nameToSave);
       await firstValueFrom(this.cloudService.uploadFile(currentPath, file));
+
+      this.newFileName = nameToSave;
+      this.originalFileContent = this.fileContent;
+      this.originalFileName = nameToSave;
 
       this.navigateToFolder(this.currentFolder?.path);
       this.closeFileEditor();
@@ -993,13 +1004,74 @@ export class CloudComponent implements OnInit, OnDestroy {
     this.previewFile(this.toFileRef(path, name));
   }
 
+  isEditorDirty(): boolean {
+    if (!this.showFileEditor) return false;
+    return (
+      this.fileContent !== this.originalFileContent ||
+      this.newFileName !== this.originalFileName
+    );
+  }
+
   closeFileEditor() {
+    if (this.isEditorDirty()) {
+      this.confirmationService.confirm({
+        header: 'Exit without saving?',
+        message: 'Your changes will be lost.',
+        icon: 'pi pi-exclamation-triangle',
+        acceptButtonStyleClass: 'p-button-danger p-button-sm',
+        rejectButtonStyleClass: 'p-button-text p-button-sm',
+        accept: () => {
+          this.originalFileContent = this.fileContent;
+          this.originalFileName = this.newFileName;
+          this.closeFileEditor();
+        },
+        reject: () => {
+          this.showFileEditor = true;
+        },
+      });
+      return;
+    }
+
     this.showFileEditor = false;
     this.editingFile = null;
     this.newFileName = '';
     this.fileContent = '';
+    this.originalFileContent = '';
+    this.originalFileName = '';
     this.editorMode = 'edit';
     this.previewHtml = '';
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  unloadNotification($event: BeforeUnloadEvent): void {
+    if (this.isEditorDirty()) {
+      $event.preventDefault();
+      $event.returnValue = 'Exit without saving? Your changes will be lost.';
+    }
+  }
+
+  canDeactivate(): Promise<boolean> | boolean {
+    if (this.isEditorDirty()) {
+      return new Promise<boolean>((resolve) => {
+        this.confirmationService.confirm({
+          header: 'Exit without saving?',
+          message: 'Your changes will be lost.',
+          icon: 'pi pi-exclamation-triangle',
+          acceptButtonStyleClass: 'p-button-danger p-button-sm',
+          rejectButtonStyleClass: 'p-button-text p-button-sm',
+          accept: () => {
+            this.originalFileContent = this.fileContent;
+            this.originalFileName = this.newFileName;
+            this.closeFileEditor();
+            resolve(true);
+          },
+          reject: () => {
+            resolve(false);
+          },
+        });
+      });
+    }
+    return true;
   }
 
   isMarkdownFile(fileName: string): boolean {
