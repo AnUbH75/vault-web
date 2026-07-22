@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import {
   Component,
   ElementRef,
+  HostListener,
   OnDestroy,
   OnInit,
   ViewChild,
@@ -29,6 +30,7 @@ import { SearchResultDto } from '../../models/dtos/SearchResultDto';
 import { ScanJobDto } from '../../models/dtos/ScanJobDto';
 import { FileScanResultDto } from '../../models/dtos/FileScanResultDto';
 import { FileChecksumDto } from '../../models/dtos/FileChecksumDto';
+import { SecureSendLinkDto } from '../../models/dtos/SecureSendLinkDto';
 import { CloudService } from '../../services/cloud.service';
 import { finalize, firstValueFrom } from 'rxjs';
 import { UiToastService } from '../../core/services/ui-toast.service';
@@ -88,12 +90,35 @@ export class CloudComponent implements OnInit, OnDestroy {
   editingFile: FileDto | null = null;
   newFileName = '';
   fileContent = '';
+  // The editor state as last loaded or saved.
+  originalFileName = '';
+  originalFileContent = '';
   editorMode: 'edit' | 'preview' | 'split' = 'edit';
   previewHtml: SafeHtml = '';
 
   showCreateFolderDialog = false;
   showRenameFolderDialog = false;
   showRenameFileDialog = false;
+  showCreateShareDialog = false;
+  showGeneratedLinkDialog = false;
+  showSharedLinksDialog = false;
+
+  selectedFileForShare: { path: string; name: string } | null = null;
+  shareExpiryMinutes = 1440;
+  sharePassword = '';
+  createdShareUrl = '';
+  creatingShareLink = false;
+  sharedLinks: SecureSendLinkDto[] = [];
+  loadingSharedLinks = false;
+  revokingLinkId: string | null = null;
+
+  expiryOptions = [
+    { label: '1 Hour', value: 60 },
+    { label: '1 Day', value: 1440 },
+    { label: '7 Days', value: 10080 },
+    { label: '30 Days', value: 43200 },
+  ];
+
   newFolderName = '';
   renameFolderName = '';
   renameFileName = '';
@@ -675,6 +700,8 @@ export class CloudComponent implements OnInit, OnDestroy {
     this.editingFile = null;
     this.newFileName = '';
     this.fileContent = '';
+    this.originalFileName = '';
+    this.originalFileContent = '';
     this.editorMode = 'edit';
     this.previewHtml = '';
     this.showFileEditor = true;
@@ -720,11 +747,13 @@ export class CloudComponent implements OnInit, OnDestroy {
 
     this.editingFile = file;
     this.newFileName = file.name;
+    this.originalFileName = file.name;
     const relativePath = this.getRelativePath(file.path);
 
     this.cloudService.getFileContent(relativePath).subscribe({
       next: (content) => {
         this.fileContent = content;
+        this.originalFileContent = content;
         this.editorMode = 'edit';
         this.updatePreview();
         this.showFileEditor = true;
@@ -1007,8 +1036,172 @@ export class CloudComponent implements OnInit, OnDestroy {
     this.editingFile = null;
     this.newFileName = '';
     this.fileContent = '';
+    this.originalFileName = '';
+    this.originalFileContent = '';
     this.editorMode = 'edit';
     this.previewHtml = '';
+  }
+
+  /** True while the editor is open with edits that have not been saved. */
+  get isEditorDirty(): boolean {
+    return this.showFileEditor && this.hasUnsavedEditorChanges();
+  }
+
+  private hasUnsavedEditorChanges(): boolean {
+    return (
+      this.fileContent !== this.originalFileContent ||
+      this.newFileName !== this.originalFileName
+    );
+  }
+
+  /**
+   * Close the editor, but if there are unsaved edits ask first. Used by the
+   * Cancel button and by the dialog's dismiss paths so no exit silently drops
+   * changes.
+   */
+  requestCloseFileEditor(): void {
+    if (!this.hasUnsavedEditorChanges()) {
+      this.closeFileEditor();
+      return;
+    }
+    this.confirmationService.confirm({
+      header: 'Unsaved changes',
+      message: 'Exit without saving? Your changes will be lost.',
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Discard',
+      rejectLabel: 'Keep editing',
+      acceptButtonStyleClass: 'p-button-danger p-button-sm',
+      rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => this.closeFileEditor(),
+    });
+  }
+
+  /**
+   * The dialog was dismissed (the header close button, Esc, or a mask click),
+   * which the two-way visible binding has already flipped off. Reverse it and
+   * route through the same guard so a dismiss can't bypass the prompt.
+   */
+  onFileEditorHide(): void {
+    if (!this.hasUnsavedEditorChanges()) {
+      this.closeFileEditor();
+      return;
+    }
+    this.showFileEditor = true;
+    this.requestCloseFileEditor();
+  }
+
+  /** Native guard for a full-page leave (reload, tab close, external navigation). */
+  @HostListener('window:beforeunload', ['$event'])
+  warnBeforeUnload(event: BeforeUnloadEvent): void {
+    if (this.isEditorDirty) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  }
+
+  openCreateShareDialog(filePath: string, fileName: string) {
+    this.selectedFileForShare = { path: filePath, name: fileName };
+    this.shareExpiryMinutes = 1440;
+    this.sharePassword = '';
+    this.showCreateShareDialog = true;
+  }
+
+  submitCreateShareLink() {
+    if (!this.selectedFileForShare) return;
+
+    this.creatingShareLink = true;
+    const { path, name } = this.selectedFileForShare;
+
+    this.cloudService
+      .createSecureSendLink(
+        path,
+        Number(this.shareExpiryMinutes),
+        this.sharePassword,
+      )
+      .pipe(finalize(() => (this.creatingShareLink = false)))
+      .subscribe({
+        next: (link) => {
+          this.createdShareUrl = link.shareUrl || '';
+          this.showCreateShareDialog = false;
+          this.showGeneratedLinkDialog = true;
+          this.toast.success(
+            'Share link created',
+            `Link for "${name}" created successfully.`,
+          );
+        },
+        error: (err: unknown) => {
+          const status = (err as { status?: number })?.status;
+          if (status === 429) {
+            this.toast.error(
+              'Rate limit reached',
+              'Too many share links created. Please wait before trying again.',
+            );
+          } else {
+            this.toast.error(
+              'Share failed',
+              this.getErrorMessage(err) || 'Could not create share link.',
+            );
+          }
+        },
+      });
+  }
+
+  copyShareUrlToClipboard() {
+    if (!this.createdShareUrl) return;
+    navigator.clipboard.writeText(this.createdShareUrl).then(
+      () => {
+        this.toast.success('Copied!', 'Share link copied to clipboard.');
+      },
+      () => {
+        this.toast.error('Copy failed', 'Please manually copy the URL.');
+      },
+    );
+  }
+
+  openSharedLinksDialog() {
+    this.showSharedLinksDialog = true;
+    this.loadSharedLinks();
+  }
+
+  loadSharedLinks() {
+    this.loadingSharedLinks = true;
+    this.cloudService
+      .listSecureSendLinks()
+      .pipe(finalize(() => (this.loadingSharedLinks = false)))
+      .subscribe({
+        next: (links) => {
+          this.sharedLinks = links;
+        },
+        error: (err) => {
+          this.toast.error(
+            'Error loading links',
+            this.getErrorMessage(err) || 'Could not fetch active share links.',
+          );
+        },
+      });
+  }
+
+  revokeShareLink(link: SecureSendLinkDto) {
+    this.revokingLinkId = link.id;
+    this.cloudService
+      .revokeSecureSendLink(link.id)
+      .pipe(finalize(() => (this.revokingLinkId = null)))
+      .subscribe({
+        next: () => {
+          link.isRevoked = true;
+          link.revokedAt = new Date().toISOString();
+          this.toast.success(
+            'Link revoked',
+            `Share link for "${link.fileName}" was revoked.`,
+          );
+        },
+        error: (err) => {
+          this.toast.error(
+            'Revocation failed',
+            this.getErrorMessage(err) || 'Could not revoke share link.',
+          );
+        },
+      });
   }
 
   isMarkdownFile(fileName: string): boolean {
