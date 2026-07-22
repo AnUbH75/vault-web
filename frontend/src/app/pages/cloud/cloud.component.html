@@ -354,22 +354,44 @@
     [draggable]="false"
     [resizable]="false"
     [style]="{
-      width:
-        isMarkdownFile(newFileName) && editorMode === 'split'
-          ? '78rem'
-          : '44rem',
+      width: isMarkdownFile(newFileName) ? '78rem' : '44rem',
       maxWidth: '96vw',
     }"
     [header]="editingFile ? 'Edit File' : 'Create New File'"
     styleClass="cloud-dialog"
   >
     <div class="cloud-dialog-body">
-      <label class="text-xxs sm:text-xs">File name</label>
+      <div
+        class="editor-header-bar flex justify-between align-items-center mb-1"
+      >
+        <label class="text-xxs sm:text-xs font-semibold">File name</label>
+        <span
+          *ngIf="isMarkdownFile(newFileName)"
+          class="save-status-badge text-xxs"
+          [ngClass]="saveStatus"
+        >
+          <i
+            class="pi"
+            [ngClass]="{
+              'pi-check-circle': saveStatus === 'saved',
+              'pi-spin pi-spinner': saveStatus === 'saving',
+              'pi-pencil': saveStatus === 'unsaved',
+            }"
+          ></i>
+          {{
+            saveStatus === "saved"
+              ? "Saved"
+              : saveStatus === "saving"
+                ? "Saving..."
+                : "Unsaved changes"
+          }}
+        </span>
+      </div>
       <input
         pInputText
         [(ngModel)]="newFileName"
-        (ngModelChange)="onFileNameChange()"
-        class="w-full text-xxs sm:text-xs"
+        (ngModelChange)="onContentChange()"
+        class="w-full text-xxs sm:text-xs mb-2"
         placeholder="filename.txt"
       />
 
@@ -403,51 +425,84 @@
         </div>
       </div>
 
-      <div
-        class="cloud-editor-container"
-        [class.split-layout]="
-          isMarkdownFile(newFileName) && editorMode === 'split'
-        "
-      >
-        <!-- Edit Pane -->
-        <div
-          class="editor-pane"
-          *ngIf="
-            !isMarkdownFile(newFileName) ||
-            editorMode === 'edit' ||
-            editorMode === 'split'
-          "
+      <div class="markdown-workspace-layout">
+        <!-- Outline Pane -->
+        <aside
+          class="markdown-outline-sidebar"
+          *ngIf="isMarkdownFile(newFileName)"
         >
-          <label
-            class="text-xxs sm:text-xs editor-pane-label"
-            *ngIf="isMarkdownFile(newFileName) && editorMode === 'split'"
-            >Edit</label
-          >
-          <textarea
-            [(ngModel)]="fileContent"
-            (ngModelChange)="updatePreview()"
-            class="cloud-editor text-xxs sm:text-xs"
-            placeholder="Write markdown content here..."
-          ></textarea>
-        </div>
-
-        <!-- Preview Pane -->
-        <div
-          class="preview-pane"
-          *ngIf="
-            isMarkdownFile(newFileName) &&
-            (editorMode === 'preview' || editorMode === 'split')
-          "
-        >
-          <label
-            class="text-xxs sm:text-xs editor-pane-label"
-            *ngIf="editorMode === 'split'"
-            >Preview</label
-          >
           <div
-            [innerHTML]="previewHtml"
-            class="markdown-preview text-xxs sm:text-xs"
-          ></div>
+            class="outline-title font-semibold mb-2 text-xxs sm:text-xs text-secondary uppercase tracking-wider"
+          >
+            Outline
+          </div>
+          <ul class="outline-list text-xxs sm:text-xs">
+            <li
+              *ngFor="let h of outline; let i = index"
+              [class]="'outline-level-' + h.level"
+              (click)="scrollToHeading(i)"
+              class="outline-item cursor-pointer py-1 px-2 rounded hover:bg-surface-hover hover:text-primary transition-colors"
+              title="{{ h.text }}"
+            >
+              {{ h.text }}
+            </li>
+          </ul>
+          <div
+            *ngIf="outline.length === 0"
+            class="outline-empty text-xxs sm:text-xs text-secondary italic px-2"
+          >
+            No headings
+          </div>
+        </aside>
+
+        <!-- Editor Container -->
+        <div
+          class="cloud-editor-container"
+          [class.split-layout]="
+            isMarkdownFile(newFileName) && editorMode === 'split'
+          "
+        >
+          <!-- Edit Pane -->
+          <div
+            class="editor-pane"
+            *ngIf="
+              !isMarkdownFile(newFileName) ||
+              editorMode === 'edit' ||
+              editorMode === 'split'
+            "
+          >
+            <label
+              class="text-xxs sm:text-xs editor-pane-label font-semibold"
+              *ngIf="isMarkdownFile(newFileName) && editorMode === 'split'"
+              >Edit</label
+            >
+            <textarea
+              [(ngModel)]="fileContent"
+              (ngModelChange)="onContentChange()"
+              class="cloud-editor text-xxs sm:text-xs"
+              placeholder="Write markdown content here..."
+            ></textarea>
+          </div>
+
+          <!-- Preview Pane -->
+          <div
+            class="preview-pane"
+            *ngIf="
+              isMarkdownFile(newFileName) &&
+              (editorMode === 'preview' || editorMode === 'split')
+            "
+          >
+            <label
+              class="text-xxs sm:text-xs editor-pane-label font-semibold"
+              *ngIf="editorMode === 'split'"
+              >Preview</label
+            >
+            <div
+              [innerHTML]="previewHtml"
+              (click)="handlePreviewClick($event)"
+              class="markdown-preview text-xxs sm:text-xs"
+            ></div>
+          </div>
         </div>
       </div>
     </div>

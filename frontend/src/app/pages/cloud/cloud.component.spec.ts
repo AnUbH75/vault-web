@@ -254,7 +254,16 @@ describe('CloudComponent Unsaved Changes Flow', () => {
       'getFileContent',
       'uploadFile',
       'renameOrMoveFile',
+      'getFolderByPath',
+      'getFolderContent',
     ]);
+    cloudMock.getFolderByPath.and.returnValue(
+      of({ path: '/root', name: 'root', entries: [] } as any),
+    );
+    cloudMock.getFolderContent.and.returnValue(
+      of({ content: [], totalElements: 0, totalPages: 0, pageNumber: 0 }),
+    );
+
     confirmMock = jasmine.createSpyObj<ConfirmationService>(
       'ConfirmationService',
       ['confirm'],
@@ -264,12 +273,16 @@ describe('CloudComponent Unsaved Changes Flow', () => {
       'error',
     ]);
 
+    const sanitizerMock = {
+      bypassSecurityTrustHtml: (html: string) => html,
+    };
+
     component = new CloudComponent(
       cloudMock,
       confirmMock,
       toastMock as any,
       {} as any,
-      {} as any,
+      sanitizerMock as any,
     );
   });
 
@@ -385,5 +398,112 @@ describe('CloudComponent Unsaved Changes Flow', () => {
     expect(result).toBeTrue();
     expect(confirmMock.confirm).toHaveBeenCalled();
     expect(component.showFileEditor).toBeFalse();
+  });
+
+  describe('Markdown Workspace Mode', () => {
+    beforeEach(() => {
+      jasmine.clock().install();
+    });
+
+    afterEach(() => {
+      jasmine.clock().uninstall();
+    });
+
+    it('should generate document outline from content headings', () => {
+      component.fileContent =
+        '# Heading 1\nSome text\n## Heading 2\n### Heading 3';
+      component.updateOutline();
+      expect(component.outline.length).toBe(3);
+      expect(component.outline[0]).toEqual({ text: 'Heading 1', level: 1 });
+      expect(component.outline[1]).toEqual({ text: 'Heading 2', level: 2 });
+      expect(component.outline[2]).toEqual({ text: 'Heading 3', level: 3 });
+    });
+
+    it('should parse wikilinks to anchor tags during preview update', () => {
+      component.newFileName = 'doc.md';
+      component.fileContent =
+        'Check out [[another-doc]] and [[my folder/notes]].';
+      component.updatePreview();
+
+      const parsedHtml = component.previewHtml.toString();
+      expect(parsedHtml).toContain('data-target="another-doc"');
+      expect(parsedHtml).toContain('data-target="my folder/notes"');
+    });
+
+    it('should resolve wikilinks correctly if matching file exists', () => {
+      component.entries = [
+        {
+          kind: 'file',
+          name: 'target-note.md',
+          path: '/root/target-note.md',
+          size: 0,
+          mimeType: 'text/markdown',
+        } as any,
+      ];
+
+      const fileRef = component.resolveWikilink('target-note');
+      expect(fileRef).not.toBeNull();
+      expect(fileRef?.name).toBe('target-note.md');
+      expect(fileRef?.path).toBe('/root/target-note.md');
+
+      const missingFileRef = component.resolveWikilink('non-existent');
+      expect(missingFileRef).toBeNull();
+    });
+
+    it('should handle click on wikilink and open matched file', () => {
+      spyOn(component, 'editFile');
+      component.entries = [
+        {
+          kind: 'file',
+          name: 'target-note.md',
+          path: '/root/target-note.md',
+          size: 0,
+          mimeType: 'text/markdown',
+        } as any,
+      ];
+
+      const mockEvent = {
+        target: {
+          classList: {
+            contains: (cls: string) => cls === 'wikilink',
+          },
+          getAttribute: (attr: string) =>
+            attr === 'data-target' ? 'target-note' : null,
+        },
+        preventDefault: jasmine.createSpy('preventDefault'),
+      } as any;
+
+      component.handlePreviewClick(mockEvent);
+      expect(mockEvent.preventDefault).toHaveBeenCalled();
+      expect(component.editFile).toHaveBeenCalledWith({
+        path: '/root/target-note.md',
+        name: 'target-note.md',
+        size: 0,
+        mimeType: '',
+      });
+    });
+
+    it('should transition saveStatus through unsaved -> saving -> saved during autosave', async () => {
+      component.showFileEditor = true;
+      component.newFileName = 'note.md';
+      component.fileContent = 'new markdown';
+      component.originalFileContent = '';
+      component.originalFileName = 'note.md';
+      component.currentFolder = { path: '/root', name: 'root' } as any;
+
+      cloudMock.uploadFile.and.returnValue(of({} as any));
+
+      component.onContentChange();
+      expect(component.saveStatus).toBe('unsaved');
+
+      jasmine.clock().tick(2000);
+
+      // Wait for async autosave Promise to resolve
+      await component.autosaveFile();
+
+      expect(component.saveStatus).toBe('saved');
+      expect(component.originalFileContent).toBe('new markdown');
+      expect(component.isEditorDirty()).toBeFalse();
+    });
   });
 });

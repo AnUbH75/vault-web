@@ -90,6 +90,9 @@ export class CloudComponent implements OnInit, OnDestroy {
   fileContent = '';
   originalFileContent = '';
   originalFileName = '';
+  outline: { text: string; level: number }[] = [];
+  saveStatus: 'saved' | 'saving' | 'unsaved' = 'saved';
+  autosaveTimer: ReturnType<typeof setTimeout> | null = null;
   editorMode: 'edit' | 'preview' | 'split' = 'edit';
   previewHtml: SafeHtml = '';
 
@@ -671,6 +674,8 @@ export class CloudComponent implements OnInit, OnDestroy {
     this.fileContent = '';
     this.originalFileName = '';
     this.originalFileContent = '';
+    this.outline = [];
+    this.saveStatus = 'saved';
     this.editorMode = 'edit';
     this.previewHtml = '';
     this.showFileEditor = true;
@@ -723,8 +728,10 @@ export class CloudComponent implements OnInit, OnDestroy {
         this.originalFileName = file.name;
         this.originalFileContent = content;
         this.fileContent = content;
+        this.saveStatus = 'saved';
         this.editorMode = 'edit';
         this.updatePreview();
+        this.updateOutline();
         this.showFileEditor = true;
       },
       error: (err) => {
@@ -1004,6 +1011,138 @@ export class CloudComponent implements OnInit, OnDestroy {
     this.previewFile(this.toFileRef(path, name));
   }
 
+  updateOutline() {
+    const lines = (this.fileContent || '').split('\n');
+    const list: { text: string; level: number }[] = [];
+    lines.forEach((line) => {
+      const match = line.match(/^(#{1,6})\s+(.+)$/);
+      if (match) {
+        list.push({
+          level: match[1].length,
+          text: match[2].trim(),
+        });
+      }
+    });
+    this.outline = list;
+  }
+
+  scrollToHeading(index: number) {
+    const container = document.querySelector('.markdown-preview');
+    if (!container) return;
+    const headings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    if (headings && headings[index]) {
+      headings[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  resolveWikilink(targetName: string): FileDto | null {
+    const normTarget = targetName.trim().toLowerCase().replace(/\.md$/, '');
+    const matchedEntry = this.entries.find(
+      (e) =>
+        e.kind === 'file' &&
+        (e.name.toLowerCase() === normTarget + '.md' ||
+          e.name.toLowerCase() === normTarget),
+    );
+    if (matchedEntry) {
+      return this.toFileRef(matchedEntry.path, matchedEntry.name);
+    }
+    return null;
+  }
+
+  handlePreviewClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (target && target.classList.contains('wikilink')) {
+      event.preventDefault();
+      const targetName = target.getAttribute('data-target');
+      if (targetName) {
+        const fileRef = this.resolveWikilink(targetName);
+        if (fileRef) {
+          this.editFile(fileRef);
+        } else {
+          this.toast.error(
+            'File not found',
+            `Could not find a Markdown file named "${targetName}" in the current folder.`,
+          );
+        }
+      }
+    }
+  }
+
+  onContentChange() {
+    if (this.isEditorDirty()) {
+      this.saveStatus = 'unsaved';
+      this.triggerAutosave();
+    } else {
+      this.saveStatus = 'saved';
+      if (this.autosaveTimer) {
+        clearTimeout(this.autosaveTimer);
+        this.autosaveTimer = null;
+      }
+    }
+    if (this.isMarkdownFile(this.newFileName)) {
+      this.updateOutline();
+      this.updatePreview();
+    }
+  }
+
+  triggerAutosave() {
+    if (this.autosaveTimer) {
+      clearTimeout(this.autosaveTimer);
+    }
+    this.autosaveTimer = setTimeout(() => {
+      this.autosaveFile();
+    }, 2000);
+  }
+
+  async autosaveFile() {
+    const nameToSave = this.newFileName.trim();
+    if (!nameToSave || !this.isEditorDirty()) return;
+
+    this.saveStatus = 'saving';
+
+    try {
+      if (this.editingFile && nameToSave !== this.editingFile.name) {
+        const relativeSource = this.getRelativePath(this.editingFile.path);
+        const relativeTargetDir = this.getParentRelativePath(
+          this.editingFile.path,
+        );
+        const relativeTarget = this.joinRelativePath(
+          relativeTargetDir,
+          nameToSave,
+        );
+        await firstValueFrom(
+          this.cloudService.renameOrMoveFile(relativeSource, relativeTarget),
+        );
+        this.editingFile.name = nameToSave;
+        this.editingFile.path = relativeTarget;
+      }
+
+      const currentPath = this.getRelativePath(this.currentFolder?.path || '/');
+      const fileBlob = new Blob([this.fileContent], { type: 'text/plain' });
+      const file = new File([fileBlob], nameToSave);
+      await firstValueFrom(this.cloudService.uploadFile(currentPath, file));
+
+      if (!this.editingFile) {
+        const relativeTarget = this.joinRelativePath(currentPath, nameToSave);
+        this.editingFile = {
+          path: relativeTarget,
+          name: nameToSave,
+          size: fileBlob.size,
+          mimeType: 'text/markdown',
+        };
+      }
+
+      this.newFileName = nameToSave;
+      this.originalFileContent = this.fileContent;
+      this.originalFileName = nameToSave;
+      this.saveStatus = 'saved';
+      this.reloadCurrentFolder();
+    } catch (err: unknown) {
+      this.saveStatus = 'unsaved';
+      console.error('Autosave failed:', err);
+    }
+  }
+
   isEditorDirty(): boolean {
     if (!this.showFileEditor) return false;
     return (
@@ -1032,12 +1171,17 @@ export class CloudComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (this.autosaveTimer) {
+      clearTimeout(this.autosaveTimer);
+      this.autosaveTimer = null;
+    }
+
     this.showFileEditor = false;
     this.editingFile = null;
     this.newFileName = '';
     this.fileContent = '';
-    this.originalFileContent = '';
-    this.originalFileName = '';
+    this.outline = [];
+    this.saveStatus = 'saved';
     this.editorMode = 'edit';
     this.previewHtml = '';
   }
@@ -1082,13 +1226,21 @@ export class CloudComponent implements OnInit, OnDestroy {
 
   updatePreview() {
     if (!this.isMarkdownFile(this.newFileName)) return;
-    const rawMarkdown = this.fileContent || '';
+    let rawMarkdown = this.fileContent || '';
+
+    // Convert [[wikilink]] to clickable links
+    rawMarkdown = rawMarkdown.replace(
+      /\[\[([^\]]+)\]\]/g,
+      '<a class="wikilink cursor-pointer text-primary hover:underline" data-target="$1">$1</a>',
+    );
+
     try {
       // marked runs synchronously here, so the result is always a string.
       const dirtyHtml = marked.parse(rawMarkdown, { async: false });
-      // DOMPurify strips any XSS payload; only then do we tell Angular the
-      // string is safe, so the bypass never sees unsanitized HTML.
-      const cleanHtml = DOMPurify.sanitize(dirtyHtml);
+      // DOMPurify strips any XSS payload; allow data-target attributes
+      const cleanHtml = DOMPurify.sanitize(dirtyHtml, {
+        ADD_ATTR: ['data-target'],
+      });
       this.previewHtml = this.sanitizer.bypassSecurityTrustHtml(cleanHtml);
     } catch (e) {
       console.error('Error rendering markdown', e);
