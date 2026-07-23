@@ -681,6 +681,7 @@
   <!-- Checksum / File Integrity Dialog -->
   <p-dialog
     [(visible)]="showChecksumDialog"
+    (onHide)="onChecksumDialogHide()"
     header="File Integrity Checksum (SHA-256)"
     [modal]="true"
     [style]="{ width: '90vw', maxWidth: '580px' }"
@@ -804,7 +805,7 @@
       <p-button
         label="Close"
         styleClass="p-button-text p-button-sm text-xs"
-        (click)="showChecksumDialog = false"
+        (click)="onChecksumDialogHide()"
       ></p-button>
     </ng-template>
   </p-dialog>

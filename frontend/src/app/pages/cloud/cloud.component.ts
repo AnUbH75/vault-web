@@ -155,6 +155,7 @@ export class CloudComponent implements OnInit, OnDestroy {
   // the contentRequestId guard used for folder loads/searches).
   private scanRunId = 0;
 
+  private checksumRequestId = 0;
   showChecksumDialog = false;
   checksumLoading = false;
   checksumError?: string;
@@ -1478,6 +1479,8 @@ export class CloudComponent implements OnInit, OnDestroy {
   }
 
   openChecksumDialog(file: { path: string; name: string }): void {
+    if (!file) return;
+    const requestId = ++this.checksumRequestId;
     this.selectedFileForChecksum = { name: file.name, path: file.path };
     this.showChecksumDialog = true;
     this.checksumLoading = true;
@@ -1489,16 +1492,31 @@ export class CloudComponent implements OnInit, OnDestroy {
     const relativePath = this.getRelativePath(file.path);
     this.cloudService.getFileChecksum(relativePath).subscribe({
       next: (result) => {
+        if (requestId !== this.checksumRequestId || !this.showChecksumDialog)
+          return;
         this.checksumResult = result;
         this.checksumLoading = false;
       },
       error: (err) => {
+        if (requestId !== this.checksumRequestId || !this.showChecksumDialog)
+          return;
         this.checksumLoading = false;
         const msg = this.getErrorMessage(err);
         this.checksumError = msg;
         this.toast.error('Checksum Calculation Failed', msg);
       },
     });
+  }
+
+  onChecksumDialogHide(): void {
+    this.checksumRequestId++;
+    this.showChecksumDialog = false;
+    this.checksumLoading = false;
+    this.checksumError = undefined;
+    this.checksumResult = undefined;
+    this.selectedFileForChecksum = null;
+    this.expectedHash = '';
+    this.copiedHashState = false;
   }
 
   copyChecksumToClipboard(): void {

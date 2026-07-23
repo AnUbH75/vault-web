@@ -241,351 +241,350 @@ describe('CloudComponent virus scan', () => {
 
     expect(cloudMock.getScanJob).not.toHaveBeenCalled();
   });
-  describe('CloudComponent File Checksum', () => {
-    let component: CloudComponent;
-    let cloudMock: jasmine.SpyObj<CloudService>;
-    let toastMock: { success: jasmine.Spy; error: jasmine.Spy };
+});
 
-    beforeEach(() => {
-      cloudMock = jasmine.createSpyObj<CloudService>('CloudService', [
-        'getFileChecksum',
-      ]);
-      toastMock = {
-        success: jasmine.createSpy('success'),
-        error: jasmine.createSpy('error'),
-      };
-      component = new CloudComponent(
-        cloudMock,
-        {} as never,
-        toastMock as never,
-        {} as never,
-        {} as never,
-      );
-      component.rootPath = '/root';
-    });
+describe('CloudComponent File Checksum', () => {
+  let component: CloudComponent;
+  let cloudMock: jasmine.SpyObj<CloudService>;
+  let toastMock: { success: jasmine.Spy; error: jasmine.Spy };
 
-    it('should open dialog and load file checksum successfully', () => {
-      const mockChecksum = {
-        filePath: 'test.pdf',
-        checksum:
-          'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-        algorithm: 'SHA-256',
-      };
-      cloudMock.getFileChecksum.and.returnValue(of(mockChecksum));
-
-      component.openChecksumDialog({
-        name: 'test.pdf',
-        path: '/root/test.pdf',
-      });
-
-      expect(component.showChecksumDialog).toBeTrue();
-      expect(component.selectedFileForChecksum?.name).toBe('test.pdf');
-      expect(component.checksumLoading).toBeFalse();
-      expect(component.checksumResult?.checksum).toBe(
-        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-      );
-    });
-
-    it('should handle checksum error and invoke toast notification', () => {
-      cloudMock.getFileChecksum.and.returnValue(
-        throwError(() => new Error('Checksum endpoint failure')),
-      );
-
-      component.openChecksumDialog({
-        name: 'corrupted.zip',
-        path: '/root/corrupted.zip',
-      });
-
-      expect(component.checksumLoading).toBeFalse();
-      expect(component.checksumError).toContain('Checksum endpoint failure');
-      expect(toastMock.error).toHaveBeenCalled();
-    });
-
-    it('should evaluate expected hash comparison correctly', () => {
-      component.checksumResult = {
-        filePath: 'doc.txt',
-        checksum: 'A1B2C3D4E5',
-        algorithm: 'SHA-256',
-      };
-
-      component.expectedHash = '';
-      expect(component.hashMatchStatus).toBe('empty');
-
-      component.expectedHash = 'a1b2c3d4e5';
-      expect(component.hashMatchStatus).toBe('match');
-
-      component.expectedHash = 'wronghash123';
-      expect(component.hashMatchStatus).toBe('mismatch');
-    });
-
-    it('should copy checksum to clipboard and set toast notification', () => {
-      component.checksumResult = {
-        filePath: 'doc.txt',
-        checksum: '1234567890abcdef',
-        algorithm: 'SHA-256',
-      };
-
-      component.copyChecksumToClipboard();
-
-      expect(component.copiedHashState).toBeTrue();
-      expect(toastMock.success).toHaveBeenCalledWith(
-        'Checksum Copied',
-        jasmine.any(String),
-      );
-    });
+  beforeEach(() => {
+    cloudMock = jasmine.createSpyObj<CloudService>('CloudService', [
+      'getFileChecksum',
+    ]);
+    toastMock = {
+      success: jasmine.createSpy('success'),
+      error: jasmine.createSpy('error'),
+    };
+    component = new CloudComponent(
+      cloudMock,
+      {} as never,
+      toastMock as never,
+      {} as never,
+      {} as never,
+    );
+    component.rootPath = '/root';
   });
 
-  describe('CloudComponent Secure Send Flow', () => {
-    let component: CloudComponent;
-    let fixture: ComponentFixture<CloudComponent>;
-    let cloudServiceSpy: jasmine.SpyObj<CloudService>;
-    let toastSpy: jasmine.SpyObj<UiToastService>;
+  it('should open dialog and load file checksum successfully', () => {
+    const mockChecksum = {
+      filePath: 'test.pdf',
+      checksum:
+        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      algorithm: 'SHA-256',
+    };
+    cloudMock.getFileChecksum.and.returnValue(of(mockChecksum));
 
-    beforeEach(async () => {
-      cloudServiceSpy = jasmine.createSpyObj('CloudService', [
-        'getRootFolder',
-        'getFolderByPath',
-        'getFolderContent',
-        'createSecureSendLink',
-        'listSecureSendLinks',
-        'revokeSecureSendLink',
-      ]);
-
-      cloudServiceSpy.getRootFolder.and.returnValue(
-        of({ id: 'root', name: 'Root', path: '/' } as any),
-      );
-      cloudServiceSpy.getFolderContent.and.returnValue(
-        of({ content: [], totalElements: 0, totalPages: 0, page: 0 } as any),
-      );
-
-      toastSpy = jasmine.createSpyObj('UiToastService', [
-        'success',
-        'error',
-        'info',
-        'warn',
-      ]);
-
-      await TestBed.configureTestingModule({
-        imports: [
-          CloudComponent,
-          HttpClientTestingModule,
-          RouterTestingModule,
-          NoopAnimationsModule,
-        ],
-        providers: [
-          { provide: CloudService, useValue: cloudServiceSpy },
-          { provide: UiToastService, useValue: toastSpy },
-        ],
-      }).compileComponents();
-
-      fixture = TestBed.createComponent(CloudComponent);
-      component = fixture.componentInstance;
-      fixture.detectChanges();
+    component.openChecksumDialog({
+      name: 'test.pdf',
+      path: '/root/test.pdf',
     });
 
-    it('should open create share link dialog for a file', () => {
-      component.openCreateShareDialog('/file.txt', 'file.txt');
-      expect(component.selectedFileForShare).toEqual({
-        path: '/file.txt',
-        name: 'file.txt',
-      });
-      expect(component.showCreateShareDialog).toBeTrue();
-      expect(component.shareExpiryMinutes).toBe(1440);
+    expect(component.showChecksumDialog).toBeTrue();
+    expect(component.selectedFileForChecksum?.name).toBe('test.pdf');
+    expect(component.checksumLoading).toBeFalse();
+    expect(component.checksumResult?.checksum).toBe(
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    );
+  });
+
+  it('should handle checksum error and invoke toast notification', () => {
+    cloudMock.getFileChecksum.and.returnValue(
+      throwError(() => new Error('Checksum endpoint failure')),
+    );
+
+    component.openChecksumDialog({
+      name: 'corrupted.zip',
+      path: '/root/corrupted.zip',
     });
 
-    it('should create a secure send link and open generated URL dialog on success', () => {
-      component.selectedFileForShare = { path: '/doc.pdf', name: 'doc.pdf' };
-      component.shareExpiryMinutes = 60;
-      component.sharePassword = 'pass';
+    expect(component.checksumLoading).toBeFalse();
+    expect(component.checksumError).toContain('Checksum endpoint failure');
+    expect(toastMock.error).toHaveBeenCalled();
+  });
 
-      const mockLink: SecureSendLinkDto = {
-        id: 's1',
-        filePath: '/doc.pdf',
-        fileName: 'doc.pdf',
-        shareUrl: 'http://localhost/share/s1',
-        expiresAt: '2026-07-21T00:00:00Z',
-        createdAt: '2026-07-20T00:00:00Z',
-      };
+  it('should evaluate expected hash comparison correctly', () => {
+    component.checksumResult = {
+      filePath: 'doc.txt',
+      checksum: 'A1B2C3D4E5',
+      algorithm: 'SHA-256',
+    };
 
-      cloudServiceSpy.createSecureSendLink.and.returnValue(of(mockLink));
+    component.expectedHash = '';
+    expect(component.hashMatchStatus).toBe('empty');
 
-      component.submitCreateShareLink();
+    component.expectedHash = 'a1b2c3d4e5';
+    expect(component.hashMatchStatus).toBe('match');
 
-      expect(cloudServiceSpy.createSecureSendLink).toHaveBeenCalledWith(
-        '/doc.pdf',
-        60,
-        'pass',
-      );
-      expect(component.createdShareUrl).toBe('http://localhost/share/s1');
-      expect(component.showCreateShareDialog).toBeFalse();
-      expect(component.showGeneratedLinkDialog).toBeTrue();
-      expect(toastSpy.success).toHaveBeenCalledWith(
-        'Share link created',
-        'Link for "doc.pdf" created successfully.',
-      );
+    component.expectedHash = 'wronghash123';
+    expect(component.hashMatchStatus).toBe('mismatch');
+  });
+
+  it('should copy checksum to clipboard and set toast notification', () => {
+    component.checksumResult = {
+      filePath: 'doc.txt',
+      checksum: '1234567890abcdef',
+      algorithm: 'SHA-256',
+    };
+
+    component.copyChecksumToClipboard();
+
+    expect(component.copiedHashState).toBeTrue();
+    expect(toastMock.success).toHaveBeenCalledWith(
+      'Checksum Copied',
+      jasmine.any(String),
+    );
+  });
+});
+
+describe('CloudComponent Secure Send Flow', () => {
+  let component: CloudComponent;
+  let fixture: ComponentFixture<CloudComponent>;
+  let cloudServiceSpy: jasmine.SpyObj<CloudService>;
+  let toastSpy: jasmine.SpyObj<UiToastService>;
+
+  beforeEach(async () => {
+    cloudServiceSpy = jasmine.createSpyObj('CloudService', [
+      'getRootFolder',
+      'getFolderByPath',
+      'getFolderContent',
+      'createSecureSendLink',
+      'listSecureSendLinks',
+      'revokeSecureSendLink',
+    ]);
+
+    cloudServiceSpy.getRootFolder.and.returnValue(
+      of({ id: 'root', name: 'Root', path: '/' } as any),
+    );
+    cloudServiceSpy.getFolderContent.and.returnValue(
+      of({ content: [], totalElements: 0, totalPages: 0, page: 0 } as any),
+    );
+
+    toastSpy = jasmine.createSpyObj('UiToastService', [
+      'success',
+      'error',
+      'info',
+      'warn',
+    ]);
+
+    await TestBed.configureTestingModule({
+      imports: [
+        CloudComponent,
+        HttpClientTestingModule,
+        RouterTestingModule,
+        NoopAnimationsModule,
+      ],
+      providers: [
+        { provide: CloudService, useValue: cloudServiceSpy },
+        { provide: UiToastService, useValue: toastSpy },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(CloudComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  it('should open create share link dialog for a file', () => {
+    component.openCreateShareDialog('/file.txt', 'file.txt');
+    expect(component.selectedFileForShare).toEqual({
+      path: '/file.txt',
+      name: 'file.txt',
     });
+    expect(component.showCreateShareDialog).toBeTrue();
+    expect(component.shareExpiryMinutes).toBe(1440);
+  });
 
-    it('should handle rate limit error (HTTP 429) when creating share link', () => {
-      component.selectedFileForShare = { path: '/doc.pdf', name: 'doc.pdf' };
-      cloudServiceSpy.createSecureSendLink.and.returnValue(
-        throwError(() => ({ status: 429, message: 'Too Many Requests' })),
-      );
+  it('should create a secure send link and open generated URL dialog on success', () => {
+    component.selectedFileForShare = { path: '/doc.pdf', name: 'doc.pdf' };
+    component.shareExpiryMinutes = 60;
+    component.sharePassword = 'pass';
 
-      component.submitCreateShareLink();
+    const mockLink: SecureSendLinkDto = {
+      id: 's1',
+      filePath: '/doc.pdf',
+      fileName: 'doc.pdf',
+      shareUrl: 'http://localhost/share/s1',
+      expiresAt: '2026-07-21T00:00:00Z',
+      createdAt: '2026-07-20T00:00:00Z',
+    };
 
-      expect(toastSpy.error).toHaveBeenCalledWith(
-        'Rate limit reached',
-        'Too many share links created. Please wait before trying again.',
-      );
-    });
+    cloudServiceSpy.createSecureSendLink.and.returnValue(of(mockLink));
 
-    it('should load active share links in dialog', () => {
-      const mockLinks: SecureSendLinkDto[] = [
-        {
-          id: 'link1',
-          filePath: '/a.txt',
-          fileName: 'a.txt',
-          expiresAt: '2026-07-25T00:00:00Z',
-          createdAt: '2026-07-20T00:00:00Z',
-        },
-      ];
+    component.submitCreateShareLink();
 
-      cloudServiceSpy.listSecureSendLinks.and.returnValue(of(mockLinks));
+    expect(cloudServiceSpy.createSecureSendLink).toHaveBeenCalledWith(
+      '/doc.pdf',
+      60,
+      'pass',
+    );
+    expect(component.createdShareUrl).toBe('http://localhost/share/s1');
+    expect(component.showCreateShareDialog).toBeFalse();
+    expect(component.showGeneratedLinkDialog).toBeTrue();
+    expect(toastSpy.success).toHaveBeenCalledWith(
+      'Share link created',
+      'Link for "doc.pdf" created successfully.',
+    );
+  });
 
-      component.openSharedLinksDialog();
+  it('should handle rate limit error (HTTP 429) when creating share link', () => {
+    component.selectedFileForShare = { path: '/doc.pdf', name: 'doc.pdf' };
+    cloudServiceSpy.createSecureSendLink.and.returnValue(
+      throwError(() => ({ status: 429, message: 'Too Many Requests' })),
+    );
 
-      expect(component.showSharedLinksDialog).toBeTrue();
-      expect(component.sharedLinks).toEqual(mockLinks);
-    });
+    component.submitCreateShareLink();
 
-    it('should revoke a share link and update UI state', () => {
-      const link: SecureSendLinkDto = {
+    expect(toastSpy.error).toHaveBeenCalledWith(
+      'Rate limit reached',
+      'Too many share links created. Please wait before trying again.',
+    );
+  });
+
+  it('should load active share links in dialog', () => {
+    const mockLinks: SecureSendLinkDto[] = [
+      {
         id: 'link1',
         filePath: '/a.txt',
         fileName: 'a.txt',
         expiresAt: '2026-07-25T00:00:00Z',
         createdAt: '2026-07-20T00:00:00Z',
-        isRevoked: false,
-      };
+      },
+    ];
 
-      cloudServiceSpy.revokeSecureSendLink.and.returnValue(of(void 0));
+    cloudServiceSpy.listSecureSendLinks.and.returnValue(of(mockLinks));
 
-      component.revokeShareLink(link);
+    component.openSharedLinksDialog();
 
-      expect(cloudServiceSpy.revokeSecureSendLink).toHaveBeenCalledWith(
-        'link1',
-      );
-      expect(link.isRevoked).toBeTrue();
-      expect(toastSpy.success).toHaveBeenCalledWith(
-        'Link revoked',
-        'Share link for "a.txt" was revoked.',
-      );
-    });
+    expect(component.showSharedLinksDialog).toBeTrue();
+    expect(component.sharedLinks).toEqual(mockLinks);
   });
 
-  /**
-   * The unsaved-changes guard on the Cloud file editor: every exit path (Cancel,
-   * the dialog dismiss, and a full-page leave) must confirm before discarding
-   * edits, and a clean editor must close without a prompt.
-   */
-  describe('CloudComponent unsaved-edit guard', () => {
-    let component: CloudComponent;
-    let confirmMock: jasmine.SpyObj<{ confirm: (config: unknown) => void }>;
+  it('should revoke a share link and update UI state', () => {
+    const link: SecureSendLinkDto = {
+      id: 'link1',
+      filePath: '/a.txt',
+      fileName: 'a.txt',
+      expiresAt: '2026-07-25T00:00:00Z',
+      createdAt: '2026-07-20T00:00:00Z',
+      isRevoked: false,
+    };
 
-    beforeEach(() => {
-      confirmMock = jasmine.createSpyObj('ConfirmationService', ['confirm']);
-      component = new CloudComponent(
-        {} as never,
-        confirmMock as never,
-        {} as never,
-        {} as never,
-        {} as never,
-      );
-    });
+    cloudServiceSpy.revokeSecureSendLink.and.returnValue(of(void 0));
 
-    // Open the editor on a file whose loaded state is not yet dirty.
-    function openEditor(content: string, fileName = 'note.txt'): void {
-      component.showFileEditor = true;
-      component.newFileName = fileName;
-      component.originalFileName = fileName;
-      component.fileContent = content;
-      component.originalFileContent = content;
-    }
+    component.revokeShareLink(link);
 
-    function acceptLastConfirm(): void {
-      const config = confirmMock.confirm.calls.mostRecent().args[0] as {
-        accept: () => void;
-      };
-      config.accept();
-    }
+    expect(cloudServiceSpy.revokeSecureSendLink).toHaveBeenCalledWith('link1');
+    expect(link.isRevoked).toBeTrue();
+    expect(toastSpy.success).toHaveBeenCalledWith(
+      'Link revoked',
+      'Share link for "a.txt" was revoked.',
+    );
+  });
+});
 
-    it('closes without asking when the editor has no unsaved edits', () => {
-      openEditor('hello');
-      component.requestCloseFileEditor();
-      expect(confirmMock.confirm).not.toHaveBeenCalled();
-      expect(component.showFileEditor).toBeFalse();
-    });
+/**
+ * The unsaved-changes guard on the Cloud file editor: every exit path (Cancel,
+ * the dialog dismiss, and a full-page leave) must confirm before discarding
+ * edits, and a clean editor must close without a prompt.
+ */
+describe('CloudComponent unsaved-edit guard', () => {
+  let component: CloudComponent;
+  let confirmMock: jasmine.SpyObj<{ confirm: (config: unknown) => void }>;
 
-    it('asks before discarding, and only closes once Discard is confirmed', () => {
-      openEditor('hello');
-      component.fileContent = 'hello world'; // dirty
+  beforeEach(() => {
+    confirmMock = jasmine.createSpyObj('ConfirmationService', ['confirm']);
+    component = new CloudComponent(
+      {} as never,
+      confirmMock as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+  });
 
-      component.requestCloseFileEditor();
-      expect(confirmMock.confirm).toHaveBeenCalledTimes(1);
-      expect(component.showFileEditor).toBeTrue(); // stays open until confirmed
+  // Open the editor on a file whose loaded state is not yet dirty.
+  function openEditor(content: string, fileName = 'note.txt'): void {
+    component.showFileEditor = true;
+    component.newFileName = fileName;
+    component.originalFileName = fileName;
+    component.fileContent = content;
+    component.originalFileContent = content;
+  }
 
-      acceptLastConfirm();
-      expect(component.showFileEditor).toBeFalse();
-      expect(component.fileContent).toBe(''); // editor state fully reset
-    });
+  function acceptLastConfirm(): void {
+    const config = confirmMock.confirm.calls.mostRecent().args[0] as {
+      accept: () => void;
+    };
+    config.accept();
+  }
 
-    it('asks before discarding when only the file name changed', () => {
-      openEditor('hello', 'old.txt');
-      component.newFileName = 'new.txt';
+  it('closes without asking when the editor has no unsaved edits', () => {
+    openEditor('hello');
+    component.requestCloseFileEditor();
+    expect(confirmMock.confirm).not.toHaveBeenCalled();
+    expect(component.showFileEditor).toBeFalse();
+  });
 
-      component.requestCloseFileEditor();
+  it('asks before discarding, and only closes once Discard is confirmed', () => {
+    openEditor('hello');
+    component.fileContent = 'hello world'; // dirty
 
-      expect(confirmMock.confirm).toHaveBeenCalledTimes(1);
-      expect(component.showFileEditor).toBeTrue();
-    });
+    component.requestCloseFileEditor();
+    expect(confirmMock.confirm).toHaveBeenCalledTimes(1);
+    expect(component.showFileEditor).toBeTrue(); // stays open until confirmed
 
-    it('reverses a dialog dismiss and confirms when there are unsaved edits', () => {
-      openEditor('hello');
-      component.fileContent = 'changed';
-      component.showFileEditor = false; // the dismiss already flipped visible off
+    acceptLastConfirm();
+    expect(component.showFileEditor).toBeFalse();
+    expect(component.fileContent).toBe(''); // editor state fully reset
+  });
 
-      component.onFileEditorHide();
+  it('asks before discarding when only the file name changed', () => {
+    openEditor('hello', 'old.txt');
+    component.newFileName = 'new.txt';
 
-      expect(component.showFileEditor).toBeTrue(); // reopened
-      expect(confirmMock.confirm).toHaveBeenCalledTimes(1);
-    });
+    component.requestCloseFileEditor();
 
-    it('lets a clean dialog dismiss close with no prompt', () => {
-      openEditor('hello');
-      component.showFileEditor = false;
+    expect(confirmMock.confirm).toHaveBeenCalledTimes(1);
+    expect(component.showFileEditor).toBeTrue();
+  });
 
-      component.onFileEditorHide();
+  it('reverses a dialog dismiss and confirms when there are unsaved edits', () => {
+    openEditor('hello');
+    component.fileContent = 'changed';
+    component.showFileEditor = false; // the dismiss already flipped visible off
 
-      expect(confirmMock.confirm).not.toHaveBeenCalled();
-      expect(component.showFileEditor).toBeFalse();
-    });
+    component.onFileEditorHide();
 
-    it('blocks a full-page leave only while there are unsaved edits', () => {
-      openEditor('hello');
-      const clean = {
-        preventDefault: jasmine.createSpy('preventDefault'),
-        returnValue: '',
-      } as unknown as BeforeUnloadEvent;
-      component.warnBeforeUnload(clean);
-      expect(clean.preventDefault).not.toHaveBeenCalled();
+    expect(component.showFileEditor).toBeTrue(); // reopened
+    expect(confirmMock.confirm).toHaveBeenCalledTimes(1);
+  });
 
-      component.fileContent = 'changed';
-      const dirty = {
-        preventDefault: jasmine.createSpy('preventDefault'),
-        returnValue: '',
-      } as unknown as BeforeUnloadEvent;
-      component.warnBeforeUnload(dirty);
-      expect(dirty.preventDefault).toHaveBeenCalled();
-    });
+  it('lets a clean dialog dismiss close with no prompt', () => {
+    openEditor('hello');
+    component.showFileEditor = false;
+
+    component.onFileEditorHide();
+
+    expect(confirmMock.confirm).not.toHaveBeenCalled();
+    expect(component.showFileEditor).toBeFalse();
+  });
+
+  it('blocks a full-page leave only while there are unsaved edits', () => {
+    openEditor('hello');
+    const clean = {
+      preventDefault: jasmine.createSpy('preventDefault'),
+      returnValue: '',
+    } as unknown as BeforeUnloadEvent;
+    component.warnBeforeUnload(clean);
+    expect(clean.preventDefault).not.toHaveBeenCalled();
+
+    component.fileContent = 'changed';
+    const dirty = {
+      preventDefault: jasmine.createSpy('preventDefault'),
+      returnValue: '',
+    } as unknown as BeforeUnloadEvent;
+    component.warnBeforeUnload(dirty);
+    expect(dirty.preventDefault).toHaveBeenCalled();
   });
 });
