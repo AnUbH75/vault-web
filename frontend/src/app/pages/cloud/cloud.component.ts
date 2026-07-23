@@ -1121,48 +1121,40 @@ export class CloudComponent implements OnInit, OnDestroy {
     const nameToSave = this.newFileName.trim();
     if (!nameToSave || !this.isEditorDirty) return;
 
+    // Background autosave only saves content edits under existing filename.
+    // File renames are handled when the user explicitly clicks Save.
+    if (this.editingFile && this.fileContent === this.originalFileContent) {
+      return;
+    }
+
     this.saveStatus = 'saving';
 
     try {
-      if (this.editingFile && nameToSave !== this.editingFile.name) {
-        const relativeSource = this.getRelativePath(this.editingFile.path);
-        const relativeTargetDir = this.getParentRelativePath(
-          this.editingFile.path,
-        );
-        const relativeTarget = this.joinRelativePath(
-          relativeTargetDir,
-          nameToSave,
-        );
-        await firstValueFrom(
-          this.cloudService.renameOrMoveFile(relativeSource, relativeTarget),
-        );
-        this.editingFile.name = nameToSave;
-        this.editingFile.path = relativeTarget;
-      }
-
+      const targetName = this.editingFile ? this.editingFile.name : nameToSave;
       const currentPath = this.getRelativePath(this.currentFolder?.path || '/');
       const fileBlob = new Blob([this.fileContent], { type: 'text/plain' });
-      const file = new File([fileBlob], nameToSave);
+      const file = new File([fileBlob], targetName);
       await firstValueFrom(this.cloudService.uploadFile(currentPath, file));
 
       if (!this.editingFile) {
-        const relativeTarget = this.joinRelativePath(currentPath, nameToSave);
+        const relativeTarget = this.joinRelativePath(currentPath, targetName);
         this.editingFile = {
           path: relativeTarget,
-          name: nameToSave,
+          name: targetName,
           size: fileBlob.size,
           mimeType: 'text/markdown',
         };
+        this.newFileName = targetName;
+        this.originalFileName = targetName;
       }
 
-      this.newFileName = nameToSave;
       this.originalFileContent = this.fileContent;
-      this.originalFileName = nameToSave;
       this.saveStatus = 'saved';
       this.reloadCurrentFolder();
     } catch (err: unknown) {
       this.saveStatus = 'unsaved';
       console.error('Autosave failed:', err);
+      this.toast.error('Autosave failed', this.getErrorMessage(err));
     }
   }
 
@@ -1376,15 +1368,28 @@ export class CloudComponent implements OnInit, OnDestroy {
     return ext === 'md' || ext === 'markdown';
   }
 
+  private escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   updatePreview() {
     if (!this.isMarkdownFile(this.newFileName)) return;
     let rawMarkdown = this.fileContent || '';
 
-    // Convert [[wikilink]] to clickable links
-    rawMarkdown = rawMarkdown.replace(
-      /\[\[([^\]]+)\]\]/g,
-      '<a class="wikilink cursor-pointer text-primary hover:underline" data-target="$1">$1</a>',
-    );
+    // Convert [[wikilink]] to clickable links with escaped target and label
+    rawMarkdown = rawMarkdown.replace(/\[\[([^\]]+)\]\]/g, (_, match) => {
+      const parts = match.split('|');
+      const target = parts[0].trim();
+      const label = (parts[1] || target).trim();
+      const escapedTarget = this.escapeHtml(target);
+      const escapedLabel = this.escapeHtml(label);
+      return `<a class="wikilink cursor-pointer text-primary hover:underline" data-target="${escapedTarget}">${escapedLabel}</a>`;
+    });
 
     try {
       // marked runs synchronously here, so the result is always a string.
