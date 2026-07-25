@@ -1524,16 +1524,28 @@ export class CloudComponent implements OnInit, OnDestroy {
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
       navigator.clipboard
         .writeText(this.checksumResult.checksum)
-        .catch(() => {});
+        .then(() => {
+          this.copiedHashState = true;
+          this.toast.success(
+            'Checksum Copied',
+            'SHA-256 checksum copied to clipboard.',
+          );
+          setTimeout(() => {
+            this.copiedHashState = false;
+          }, 2000);
+        })
+        .catch(() => {
+          this.toast.error(
+            'Copy Failed',
+            'Failed to copy checksum to clipboard.',
+          );
+        });
+    } else {
+      this.toast.error(
+        'Copy Failed',
+        'Clipboard API not supported.',
+      );
     }
-    this.copiedHashState = true;
-    this.toast.success(
-      'Checksum Copied',
-      'SHA-256 checksum copied to clipboard.',
-    );
-    setTimeout(() => {
-      this.copiedHashState = false;
-    }, 2000);
   }
 
   get hashMatchStatus(): 'empty' | 'match' | 'mismatch' {

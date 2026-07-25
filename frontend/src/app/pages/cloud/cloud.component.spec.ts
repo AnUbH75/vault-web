@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { RouterTestingModule } from '@angular/router/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
@@ -320,20 +320,92 @@ describe('CloudComponent File Checksum', () => {
     expect(component.hashMatchStatus).toBe('mismatch');
   });
 
-  it('should copy checksum to clipboard and set toast notification', () => {
-    component.checksumResult = {
-      filePath: 'doc.txt',
-      checksum: '1234567890abcdef',
-      algorithm: 'SHA-256',
-    };
+  describe('Clipboard Copy functionality', () => {
+    let originalClipboard: any;
 
-    component.copyChecksumToClipboard();
+    beforeEach(() => {
+      originalClipboard = navigator.clipboard;
+    });
 
-    expect(component.copiedHashState).toBeTrue();
-    expect(toastMock.success).toHaveBeenCalledWith(
-      'Checksum Copied',
-      jasmine.any(String),
-    );
+    afterEach(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: originalClipboard,
+        configurable: true,
+        writable: true,
+      });
+    });
+
+    it('should copy checksum to clipboard and set success toast notification on success', fakeAsync(() => {
+      component.checksumResult = {
+        filePath: 'doc.txt',
+        checksum: '1234567890abcdef',
+        algorithm: 'SHA-256',
+      };
+
+      const writeTextSpy = jasmine.createSpy('writeText').and.returnValue(Promise.resolve());
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: writeTextSpy },
+        configurable: true,
+        writable: true,
+      });
+
+      component.copyChecksumToClipboard();
+      tick();
+
+      expect(writeTextSpy).toHaveBeenCalledWith('1234567890abcdef');
+      expect(component.copiedHashState).toBeTrue();
+      expect(toastMock.success).toHaveBeenCalledWith(
+        'Checksum Copied',
+        jasmine.any(String),
+      );
+    }));
+
+    it('should handle clipboard writeText failure and show error toast', fakeAsync(() => {
+      component.checksumResult = {
+        filePath: 'doc.txt',
+        checksum: '1234567890abcdef',
+        algorithm: 'SHA-256',
+      };
+
+      const writeTextSpy = jasmine.createSpy('writeText').and.returnValue(Promise.reject('error'));
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: writeTextSpy },
+        configurable: true,
+        writable: true,
+      });
+
+      component.copyChecksumToClipboard();
+      tick();
+
+      expect(writeTextSpy).toHaveBeenCalledWith('1234567890abcdef');
+      expect(component.copiedHashState).toBeFalse();
+      expect(toastMock.error).toHaveBeenCalledWith(
+        'Copy Failed',
+        jasmine.any(String),
+      );
+    }));
+
+    it('should handle unsupported clipboard API and show error toast', () => {
+      component.checksumResult = {
+        filePath: 'doc.txt',
+        checksum: '1234567890abcdef',
+        algorithm: 'SHA-256',
+      };
+
+      Object.defineProperty(navigator, 'clipboard', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+
+      component.copyChecksumToClipboard();
+
+      expect(component.copiedHashState).toBeFalse();
+      expect(toastMock.error).toHaveBeenCalledWith(
+        'Copy Failed',
+        jasmine.any(String),
+      );
+    });
   });
 });
 
