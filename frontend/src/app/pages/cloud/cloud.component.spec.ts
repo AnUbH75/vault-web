@@ -3,9 +3,10 @@ import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { RouterTestingModule } from '@angular/router/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { of, throwError, Subject } from 'rxjs';
+import { ConfirmationService } from 'primeng/api';
+import { UiToastService } from '../../core/services/ui-toast.service';
 import { CloudComponent } from './cloud.component';
 import { CloudService } from '../../services/cloud.service';
-import { UiToastService } from '../../core/services/ui-toast.service';
 import { ScanJobDto } from '../../models/dtos/ScanJobDto';
 import { SecureSendLinkDto } from '../../models/dtos/SecureSendLinkDto';
 
@@ -238,8 +239,270 @@ describe('CloudComponent virus scan', () => {
     start$.next({ ...runningJob }); // POST resolves late
     start$.complete();
     jasmine.clock().tick(6000);
+  });
+});
 
-    expect(cloudMock.getScanJob).not.toHaveBeenCalled();
+describe('CloudComponent Unsaved Changes Flow', () => {
+  let component: CloudComponent;
+  let cloudMock: jasmine.SpyObj<CloudService>;
+  let confirmMock: jasmine.SpyObj<ConfirmationService>;
+  let toastMock: jasmine.SpyObj<UiToastService>;
+
+  beforeEach(() => {
+    cloudMock = jasmine.createSpyObj<CloudService>('CloudService', [
+      'getFileContent',
+      'uploadFile',
+      'renameOrMoveFile',
+      'getFolderByPath',
+      'getFolderContent',
+    ]);
+    cloudMock.getFolderByPath.and.returnValue(
+      of({ path: '/root', name: 'root', entries: [] } as any),
+    );
+    cloudMock.getFolderContent.and.returnValue(
+      of({ content: [], totalElements: 0, totalPages: 0, pageNumber: 0 }),
+    );
+
+    confirmMock = jasmine.createSpyObj<ConfirmationService>(
+      'ConfirmationService',
+      ['confirm'],
+    );
+    toastMock = jasmine.createSpyObj<UiToastService>('UiToastService', [
+      'success',
+      'error',
+    ]);
+
+    const sanitizerMock = {
+      bypassSecurityTrustHtml: (html: string) => html,
+    };
+
+    component = new CloudComponent(
+      cloudMock,
+      confirmMock,
+      toastMock as any,
+      {} as any,
+      sanitizerMock as any,
+    );
+  });
+
+  it('should track original content and not be dirty initially', () => {
+    expect(component.isEditorDirty).toBeFalse();
+  });
+
+  it('should not be dirty when file is opened and unchanged', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+    expect(component.isEditorDirty).toBeFalse();
+  });
+
+  it('should be dirty when file content is changed', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello world';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+    expect(component.isEditorDirty).toBeTrue();
+  });
+
+  it('should be dirty when file name is changed', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'b.txt';
+    expect(component.isEditorDirty).toBeTrue();
+  });
+
+  it('should prompt user on requestCloseFileEditor when dirty', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello world';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+
+    component.requestCloseFileEditor();
+
+    expect(confirmMock.confirm).toHaveBeenCalled();
+  });
+
+  it('should not prompt user on requestCloseFileEditor when not dirty', () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+
+    component.requestCloseFileEditor();
+
+    expect(confirmMock.confirm).not.toHaveBeenCalled();
+    expect(component.showFileEditor).toBeFalse();
+  });
+
+  it('should reset state and close editor upon successful save', async () => {
+    component.showFileEditor = true;
+    component.editingFile = {
+      path: '/a.txt',
+      name: 'a.txt',
+      size: 0,
+      mimeType: 'text/plain',
+    };
+    component.newFileName = 'a.txt';
+    component.fileContent = 'hello world';
+    component.originalFileContent = 'hello';
+    component.originalFileName = 'a.txt';
+    component.currentFolder = { path: '/root', name: 'root' } as any;
+
+    cloudMock.uploadFile.and.returnValue(of({} as any));
+
+    await component.saveFile();
+
+    expect(component.showFileEditor).toBeFalse();
+    expect(component.isEditorDirty).toBeFalse();
+  });
+
+  it('should return false in canDeactivate and prompt user when dirty', async () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello world';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+
+    confirmMock.confirm.and.callFake((config) => {
+      if (config.reject) config.reject();
+      return confirmMock;
+    });
+
+    const result = await component.canDeactivate();
+    expect(result).toBeFalse();
+    expect(confirmMock.confirm).toHaveBeenCalled();
+  });
+
+  it('should return true in canDeactivate and close editor when accepted', async () => {
+    component.showFileEditor = true;
+    component.originalFileContent = 'hello';
+    component.fileContent = 'hello world';
+    component.originalFileName = 'a.txt';
+    component.newFileName = 'a.txt';
+
+    confirmMock.confirm.and.callFake((config) => {
+      if (config.accept) config.accept();
+      return confirmMock;
+    });
+
+    const result = await component.canDeactivate();
+    expect(result).toBeTrue();
+    expect(confirmMock.confirm).toHaveBeenCalled();
+    expect(component.showFileEditor).toBeFalse();
+  });
+
+  describe('Markdown Workspace Mode', () => {
+    beforeEach(() => {
+      jasmine.clock().install();
+    });
+
+    afterEach(() => {
+      jasmine.clock().uninstall();
+    });
+
+    it('should generate document outline from content headings', () => {
+      component.fileContent =
+        '# Heading 1\nSome text\n## Heading 2\n### Heading 3';
+      component.updateOutline();
+      expect(component.outline.length).toBe(3);
+      expect(component.outline[0]).toEqual({ text: 'Heading 1', level: 1 });
+      expect(component.outline[1]).toEqual({ text: 'Heading 2', level: 2 });
+      expect(component.outline[2]).toEqual({ text: 'Heading 3', level: 3 });
+    });
+
+    it('should parse wikilinks to anchor tags during preview update', () => {
+      component.newFileName = 'doc.md';
+      component.fileContent =
+        'Check out [[another-doc]] and [[my folder/notes]].';
+      component.updatePreview();
+
+      const parsedHtml = component.previewHtml.toString();
+      expect(parsedHtml).toContain('data-target="another-doc"');
+      expect(parsedHtml).toContain('data-target="my folder/notes"');
+    });
+
+    it('should resolve wikilinks correctly if matching file exists', () => {
+      component.entries = [
+        {
+          kind: 'file',
+          name: 'target-note.md',
+          path: '/root/target-note.md',
+          size: 0,
+          mimeType: 'text/markdown',
+        } as any,
+      ];
+
+      const fileRef = component.resolveWikilink('target-note');
+      expect(fileRef).not.toBeNull();
+      expect(fileRef?.name).toBe('target-note.md');
+      expect(fileRef?.path).toBe('/root/target-note.md');
+
+      const missingFileRef = component.resolveWikilink('non-existent');
+      expect(missingFileRef).toBeNull();
+    });
+
+    it('should handle click on wikilink and open matched file', () => {
+      spyOn(component, 'editFile');
+      component.entries = [
+        {
+          kind: 'file',
+          name: 'target-note.md',
+          path: '/root/target-note.md',
+          size: 0,
+          mimeType: 'text/markdown',
+        } as any,
+      ];
+
+      const mockEvent = {
+        target: {
+          classList: {
+            contains: (cls: string) => cls === 'wikilink',
+          },
+          getAttribute: (attr: string) =>
+            attr === 'data-target' ? 'target-note' : null,
+        },
+        preventDefault: jasmine.createSpy('preventDefault'),
+      } as any;
+
+      component.handlePreviewClick(mockEvent);
+      expect(mockEvent.preventDefault).toHaveBeenCalled();
+      expect(component.editFile).toHaveBeenCalledWith({
+        path: '/root/target-note.md',
+        name: 'target-note.md',
+        size: 0,
+        mimeType: '',
+      });
+    });
+
+    it('should transition saveStatus through unsaved -> saving -> saved during autosave', async () => {
+      component.showFileEditor = true;
+      component.newFileName = 'note.md';
+      component.fileContent = 'new markdown';
+      component.originalFileContent = '';
+      component.originalFileName = 'note.md';
+      component.currentFolder = { path: '/root', name: 'root' } as any;
+
+      cloudMock.uploadFile.and.returnValue(of({} as any));
+
+      component.onContentChange();
+      expect(component.saveStatus).toBe('unsaved');
+
+      jasmine.clock().tick(2000);
+
+      // Wait for async autosave Promise to resolve
+      await component.autosaveFile();
+
+      expect(component.saveStatus).toBe('saved');
+      expect(component.originalFileContent).toBe('new markdown');
+      expect(component.isEditorDirty).toBeFalse();
+    });
   });
 });
 
