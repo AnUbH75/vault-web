@@ -1541,10 +1541,7 @@ export class CloudComponent implements OnInit, OnDestroy {
           );
         });
     } else {
-      this.toast.error(
-        'Copy Failed',
-        'Clipboard API not supported.',
-      );
+      this.toast.error('Copy Failed', 'Clipboard API not supported.');
     }
   }
 

@@ -1,4 +1,9 @@
-import { ComponentFixture, TestBed, fakeAsync, tick } from '@angular/core/testing';
+import {
+  ComponentFixture,
+  TestBed,
+  fakeAsync,
+  tick,
+} from '@angular/core/testing';
 import { HttpClientTestingModule } from '@angular/common/http/testing';
 import { RouterTestingModule } from '@angular/router/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
@@ -342,7 +347,9 @@ describe('CloudComponent File Checksum', () => {
         algorithm: 'SHA-256',
       };
 
-      const writeTextSpy = jasmine.createSpy('writeText').and.returnValue(Promise.resolve());
+      const writeTextSpy = jasmine
+        .createSpy('writeText')
+        .and.returnValue(Promise.resolve());
       Object.defineProperty(navigator, 'clipboard', {
         value: { writeText: writeTextSpy },
         configurable: true,
@@ -367,7 +374,9 @@ describe('CloudComponent File Checksum', () => {
         algorithm: 'SHA-256',
       };
 
-      const writeTextSpy = jasmine.createSpy('writeText').and.returnValue(Promise.reject('error'));
+      const writeTextSpy = jasmine
+        .createSpy('writeText')
+        .and.returnValue(Promise.reject('error'));
       Object.defineProperty(navigator, 'clipboard', {
         value: { writeText: writeTextSpy },
         configurable: true,
