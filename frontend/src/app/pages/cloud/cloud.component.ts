@@ -29,6 +29,7 @@ import { FolderContentItemDto } from '../../models/dtos/FolderContentItemDto';
 import { SearchResultDto } from '../../models/dtos/SearchResultDto';
 import { ScanJobDto } from '../../models/dtos/ScanJobDto';
 import { FileScanResultDto } from '../../models/dtos/FileScanResultDto';
+import { FileChecksumDto } from '../../models/dtos/FileChecksumDto';
 import { SecureSendLinkDto } from '../../models/dtos/SecureSendLinkDto';
 import { CloudService } from '../../services/cloud.service';
 import { finalize, firstValueFrom } from 'rxjs';
@@ -156,6 +157,15 @@ export class CloudComponent implements OnInit, OnDestroy {
   // callbacks compare against it and bail if they've been superseded (mirrors
   // the contentRequestId guard used for folder loads/searches).
   private scanRunId = 0;
+
+  private checksumRequestId = 0;
+  showChecksumDialog = false;
+  checksumLoading = false;
+  checksumError?: string;
+  checksumResult?: FileChecksumDto;
+  selectedFileForChecksum?: { name: string; path: string } | null;
+  expectedHash = '';
+  copiedHashState = false;
 
   pageSize = 50;
   totalElements = 0;
@@ -1654,5 +1664,80 @@ export class CloudComponent implements OnInit, OnDestroy {
     } else {
       this.downloadFile(file);
     }
+  }
+
+  openChecksumDialog(file: { path: string; name: string }): void {
+    if (!file) return;
+    const requestId = ++this.checksumRequestId;
+    this.selectedFileForChecksum = { name: file.name, path: file.path };
+    this.showChecksumDialog = true;
+    this.checksumLoading = true;
+    this.checksumError = undefined;
+    this.checksumResult = undefined;
+    this.expectedHash = '';
+    this.copiedHashState = false;
+
+    const relativePath = this.getRelativePath(file.path);
+    this.cloudService.getFileChecksum(relativePath).subscribe({
+      next: (result) => {
+        if (requestId !== this.checksumRequestId || !this.showChecksumDialog)
+          return;
+        this.checksumResult = result;
+        this.checksumLoading = false;
+      },
+      error: (err) => {
+        if (requestId !== this.checksumRequestId || !this.showChecksumDialog)
+          return;
+        this.checksumLoading = false;
+        const msg = this.getErrorMessage(err);
+        this.checksumError = msg;
+        this.toast.error('Checksum Calculation Failed', msg);
+      },
+    });
+  }
+
+  onChecksumDialogHide(): void {
+    this.checksumRequestId++;
+    this.showChecksumDialog = false;
+    this.checksumLoading = false;
+    this.checksumError = undefined;
+    this.checksumResult = undefined;
+    this.selectedFileForChecksum = null;
+    this.expectedHash = '';
+    this.copiedHashState = false;
+  }
+
+  copyChecksumToClipboard(): void {
+    if (!this.checksumResult?.checksum) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(this.checksumResult.checksum)
+        .then(() => {
+          this.copiedHashState = true;
+          this.toast.success(
+            'Checksum Copied',
+            'SHA-256 checksum copied to clipboard.',
+          );
+          setTimeout(() => {
+            this.copiedHashState = false;
+          }, 2000);
+        })
+        .catch(() => {
+          this.toast.error(
+            'Copy Failed',
+            'Failed to copy checksum to clipboard.',
+          );
+        });
+    } else {
+      this.toast.error('Copy Failed', 'Clipboard API not supported.');
+    }
+  }
+
+  get hashMatchStatus(): 'empty' | 'match' | 'mismatch' {
+    if (!this.expectedHash || !this.expectedHash.trim()) return 'empty';
+    if (!this.checksumResult?.checksum) return 'empty';
+    const expected = this.expectedHash.trim().toLowerCase();
+    const computed = this.checksumResult.checksum.trim().toLowerCase();
+    return expected === computed ? 'match' : 'mismatch';
   }
 }
