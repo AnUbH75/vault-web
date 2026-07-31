@@ -71,12 +71,14 @@ export class CloudService {
     page = 0,
     size = 50,
     sort?: string,
+    includeDirectorySizes = true,
   ): Observable<PageResponseDto<FolderContentItemDto>> {
     const path = this.normalizePath(relativePath);
     let params = new HttpParams()
       .set('path', path)
       .set('page', String(page))
-      .set('size', String(size));
+      .set('size', String(size))
+      .set('includeDirectorySizes', String(includeDirectorySizes));
     if (sort) {
       params = params.set('sort', sort);
     }
@@ -84,6 +86,11 @@ export class CloudService {
       `${this.apiUrl}/folders/content`,
       { params },
     );
+  }
+
+  getFolderSize(relativePath?: string): Observable<number> {
+    const params = new HttpParams().set('path', this.normalizePath(relativePath));
+    return this.http.get<number>(`${this.apiUrl}/folders/size`, { params });
   }
 
   searchInFolder(
