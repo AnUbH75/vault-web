@@ -32,13 +32,23 @@ import { FileScanResultDto } from '../../models/dtos/FileScanResultDto';
 import { FileChecksumDto } from '../../models/dtos/FileChecksumDto';
 import { SecureSendLinkDto } from '../../models/dtos/SecureSendLinkDto';
 import { CloudService } from '../../services/cloud.service';
-import { finalize, firstValueFrom } from 'rxjs';
+import {
+  catchError,
+  finalize,
+  firstValueFrom,
+  from,
+  map,
+  mergeMap,
+  of,
+} from 'rxjs';
 import { UiToastService } from '../../core/services/ui-toast.service';
 
 interface Breadcrumb {
   name: string;
   path: string;
 }
+
+const SIZE_REQUEST_CONCURRENCY = 3;
 
 interface CloudEntry {
   kind: 'folder' | 'file';
@@ -276,10 +286,34 @@ export class CloudComponent implements OnInit, OnDestroy {
       kind: item.directory ? 'folder' : 'file',
       name: item.name,
       path: item.path,
-      sizeLabel: this.formatFileSize(item.size),
+      sizeLabel:
+        item.directory && item.size < 0 ? '…' : this.formatFileSize(item.size),
       typeLabel: item.directory ? 'Folder' : item.mimeType || 'Unknown',
       lastModifiedAt: item.lastModifiedAt,
     }));
+  }
+
+  private loadDirectorySizes(entries: CloudEntry[], requestId: number) {
+    const pending = entries.filter(
+      (entry) => entry.kind === 'folder' && entry.sizeLabel === '…',
+    );
+    if (!pending.length) return;
+
+    from(pending)
+      .pipe(
+        mergeMap(
+          (entry) =>
+            this.cloudService.getFolderSize(entry.path).pipe(
+              map((size) => ({ entry, size })),
+              catchError(() => of({ entry, size: -1 })),
+            ),
+          SIZE_REQUEST_CONCURRENCY,
+        ),
+      )
+      .subscribe(({ entry, size }) => {
+        if (requestId !== this.contentRequestId) return;
+        entry.sizeLabel = size < 0 ? '—' : this.formatFileSize(size);
+      });
   }
 
   private buildSearchEntries(results: SearchResultDto[]): CloudEntry[] {
@@ -299,7 +333,7 @@ export class CloudComponent implements OnInit, OnDestroy {
     // quickly, an earlier (slower) request must not overwrite newer state.
     const requestId = ++this.contentRequestId;
     this.cloudService
-      .getFolderContent(relativePath, page, this.pageSize, this.sort)
+      .getFolderContent(relativePath, page, this.pageSize, this.sort, false)
       .subscribe({
         next: (contentPage) => {
           if (requestId !== this.contentRequestId) return;
@@ -307,6 +341,7 @@ export class CloudComponent implements OnInit, OnDestroy {
           this.totalElements = contentPage.totalElements;
           this.contentPage = contentPage.pageNumber;
           this.loading = false;
+          this.loadDirectorySizes(this.entries, requestId);
         },
         error: () => {
           if (requestId !== this.contentRequestId) return;
