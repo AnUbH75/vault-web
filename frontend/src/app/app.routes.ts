@@ -10,6 +10,8 @@ import { PasswordManagerComponent } from './pages/password-manager/password-mana
 import { NotFoundComponent } from './pages/not-found/not-found.component';
 import { ServerErrorComponent } from './pages/server-error/server-error.component';
 import { SecurityActivityComponent } from './pages/security-activity/security-activity.component';
+import { ShareComponent } from './pages/share/share.component';
+import { SharedLinksComponent } from './pages/cloud/shared-links/shared-links.component';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent, data: { hideNavbar: true } },
@@ -45,6 +47,16 @@ export const routes: Routes = [
     ],
   },
   { path: 'cloud/trash', component: TrashComponent, canActivate: [authGuard] },
+  {
+    path: 'cloud/shared',
+    component: SharedLinksComponent,
+    canActivate: [authGuard],
+  },
+  {
+    path: 's/:token',
+    component: ShareComponent,
+    data: { hideNavbar: true },
+  },
   {
     path: 'not-found',
     component: NotFoundComponent,

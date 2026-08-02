@@ -50,6 +50,8 @@ describe('CloudComponent virus scan', () => {
       noopToast as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
     );
     component.rootPath = '/root';
     component.currentFolder = { path: '/root', name: 'root' } as never;
@@ -287,6 +289,8 @@ describe('CloudComponent Unsaved Changes Flow', () => {
       toastMock as any,
       {} as any,
       sanitizerMock as any,
+      {} as any,
+      {} as any,
     );
   });
 
@@ -528,6 +532,8 @@ describe('CloudComponent File Checksum', () => {
       cloudMock,
       {} as never,
       toastMock as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
     );
@@ -784,47 +790,6 @@ describe('CloudComponent Secure Send Flow', () => {
       'Too many share links created. Please wait before trying again.',
     );
   });
-
-  it('should load active share links in dialog', () => {
-    const mockLinks: SecureSendLinkDto[] = [
-      {
-        id: 'link1',
-        filePath: '/a.txt',
-        fileName: 'a.txt',
-        expiresAt: '2026-07-25T00:00:00Z',
-        createdAt: '2026-07-20T00:00:00Z',
-      },
-    ];
-
-    cloudServiceSpy.listSecureSendLinks.and.returnValue(of(mockLinks));
-
-    component.openSharedLinksDialog();
-
-    expect(component.showSharedLinksDialog).toBeTrue();
-    expect(component.sharedLinks).toEqual(mockLinks);
-  });
-
-  it('should revoke a share link and update UI state', () => {
-    const link: SecureSendLinkDto = {
-      id: 'link1',
-      filePath: '/a.txt',
-      fileName: 'a.txt',
-      expiresAt: '2026-07-25T00:00:00Z',
-      createdAt: '2026-07-20T00:00:00Z',
-      isRevoked: false,
-    };
-
-    cloudServiceSpy.revokeSecureSendLink.and.returnValue(of(void 0));
-
-    component.revokeShareLink(link);
-
-    expect(cloudServiceSpy.revokeSecureSendLink).toHaveBeenCalledWith('link1');
-    expect(link.isRevoked).toBeTrue();
-    expect(toastSpy.success).toHaveBeenCalledWith(
-      'Link revoked',
-      'Share link for "a.txt" was revoked.',
-    );
-  });
 });
 
 /**
@@ -841,6 +806,8 @@ describe('CloudComponent unsaved-edit guard', () => {
     component = new CloudComponent(
       {} as never,
       confirmMock as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

@@ -30,9 +30,9 @@ import { SearchResultDto } from '../../models/dtos/SearchResultDto';
 import { ScanJobDto } from '../../models/dtos/ScanJobDto';
 import { FileScanResultDto } from '../../models/dtos/FileScanResultDto';
 import { FileChecksumDto } from '../../models/dtos/FileChecksumDto';
-import { SecureSendLinkDto } from '../../models/dtos/SecureSendLinkDto';
 import { CloudService } from '../../services/cloud.service';
 import {
+  Observable,
   catchError,
   finalize,
   firstValueFrom,
@@ -40,8 +40,16 @@ import {
   map,
   mergeMap,
   of,
+  tap,
 } from 'rxjs';
 import { UiToastService } from '../../core/services/ui-toast.service';
+import {
+  ResourceShareDto,
+  SharePermission,
+} from '../../models/dtos/ResourceShareDto';
+import { UserDto } from '../../models/dtos/UserDto';
+import { ResourceShareService } from '../../services/resource-share.service';
+import { UserService } from '../../services/user.service';
 
 interface Breadcrumb {
   name: string;
@@ -114,16 +122,39 @@ export class CloudComponent implements OnInit, OnDestroy {
   showRenameFileDialog = false;
   showCreateShareDialog = false;
   showGeneratedLinkDialog = false;
-  showSharedLinksDialog = false;
 
   selectedFileForShare: { path: string; name: string } | null = null;
+  /** A folder link is browsable, which the dialog says out loud before creating it. */
+  selectedShareIsFolder = false;
   shareExpiryMinutes = 1440;
   sharePassword = '';
   createdShareUrl = '';
   creatingShareLink = false;
-  sharedLinks: SecureSendLinkDto[] = [];
-  loadingSharedLinks = false;
-  revokingLinkId: string | null = null;
+  showShareWithMemberDialog = false;
+  selectedEntryForMemberShare: { path: string; name: string } | null = null;
+  shareCandidates: UserDto[] = [];
+  shareRecipientUsername = '';
+  shareAllowDownload = true;
+  shareAllowEdit = false;
+  creatingMemberShare = false;
+  isAtRoot = true;
+
+  // "Shared with me" browsing, rendered inside the normal cloud view so the same
+  // table, toolbar and editor are reused. `inSharedRoot` shows the list of
+  // received shares; `shareCtx` means we are inside one share at sub-path `sub`.
+  // Both null/false => ordinary own-storage behaviour, left untouched.
+  readonly SHARED_ROOT_TOKEN = '__shared-with-me__';
+  private readonly SHARE_ENTRY_PREFIX = '__share:';
+  inSharedRoot = false;
+  shareCtx: { share: ResourceShareDto; sub: string } | null = null;
+  private receivedShares: ResourceShareDto[] = [];
+
+  // Who currently has access, for the avatar stack on own shared folders.
+  // sharesByPath: own active shares grouped by their folder path (relative to
+  // the user's root). avatarByUsername: username -> profile-picture URL (or null
+  // -> render an initial).
+  private sharesByPath = new Map<string, ResourceShareDto[]>();
+  private avatarByUsername = new Map<string, string | null>();
 
   expiryOptions = [
     { label: '1 Hour', value: 60 },
@@ -194,6 +225,8 @@ export class CloudComponent implements OnInit, OnDestroy {
     private toast: UiToastService,
     private router: Router,
     private sanitizer: DomSanitizer,
+    private resourceShareService: ResourceShareService,
+    private userService: UserService,
   ) {}
 
   private getErrorMessage(err: unknown): string {
@@ -209,6 +242,7 @@ export class CloudComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.loadSharingMeta();
     this.createMenuItems = [
       {
         label: 'New Folder',
@@ -329,6 +363,9 @@ export class CloudComponent implements OnInit, OnDestroy {
   }
 
   private loadFolderContent(relativePath: string, page: number) {
+    // The "Shared with me" entry point only belongs at the top of the user's
+    // own root, not inside sub-folders or search results.
+    this.isAtRoot = relativePath === '/' || relativePath === '';
     // Guard against out-of-order responses: when the user navigates or pages
     // quickly, an earlier (slower) request must not overwrite newer state.
     const requestId = ++this.contentRequestId;
@@ -338,6 +375,15 @@ export class CloudComponent implements OnInit, OnDestroy {
         next: (contentPage) => {
           if (requestId !== this.contentRequestId) return;
           this.entries = this.buildEntries(contentPage.content);
+          // Surface "Shared with me" as the first entry of the own root, so it
+          // sits among the user's normal folders and opens in this same view.
+          if (
+            this.isAtRoot &&
+            contentPage.pageNumber === 0 &&
+            !this.searchActive
+          ) {
+            this.entries = [this.sharedRootEntry(), ...this.entries];
+          }
           this.totalElements = contentPage.totalElements;
           this.contentPage = contentPage.pageNumber;
           this.loading = false;
@@ -463,6 +509,382 @@ export class CloudComponent implements OnInit, OnDestroy {
 
   goToTrash() {
     this.router.navigate(['/cloud/trash']);
+  }
+
+  goToSharedLinks() {
+    this.router.navigate(['/cloud/shared']);
+  }
+
+  // --- "Shared with me" inside the normal cloud view ------------------------
+
+  /** True while browsing the shared area (list of shares or inside one). */
+  get sharedMode(): boolean {
+    return this.inSharedRoot || !!this.shareCtx;
+  }
+
+  /**
+   * Whether write actions (new file/folder, upload, delete, save) apply here.
+   * Always true in own storage; inside a share only with the EDIT permission.
+   */
+  get canWriteHere(): boolean {
+    if (!this.sharedMode) {
+      return true;
+    }
+    return !!this.shareCtx?.share.permissions.includes('EDIT');
+  }
+
+  /**
+   * Whether files here may be taken out of the vault. Always true in own storage;
+   * inside a share only with DOWNLOAD, so a VIEW-only share offers no download
+   * button instead of failing against the backend.
+   */
+  get canDownloadHere(): boolean {
+    if (!this.sharedMode) {
+      return true;
+    }
+    return !!this.shareCtx?.share.permissions.includes('DOWNLOAD');
+  }
+
+  /** Synthetic root entry that opens the shared area, shown among own folders. */
+  private sharedRootEntry(): CloudEntry {
+    return {
+      kind: 'folder',
+      name: 'Shared with me',
+      path: this.SHARED_ROOT_TOKEN,
+      sizeLabel: '',
+      typeLabel: 'Shared',
+      lastModifiedAt: 0,
+    };
+  }
+
+  /** Single dispatch for a row click, routing to own storage or a share. */
+  onEntryOpen(entry: CloudEntry): void {
+    if (entry.path === this.SHARED_ROOT_TOKEN) {
+      this.enterSharedRoot();
+      return;
+    }
+    if (this.inSharedRoot) {
+      this.openShareEntry(entry);
+      return;
+    }
+    if (this.shareCtx) {
+      if (entry.kind === 'folder') {
+        this.loadShareContent(entry.path);
+      } else {
+        this.openSharedFile(entry);
+      }
+      return;
+    }
+    if (entry.kind === 'folder') {
+      this.navigateToFolder(entry.path);
+    } else {
+      this.previewFileByPath(entry.path, entry.name);
+    }
+  }
+
+  enterSharedRoot(): void {
+    this.inSharedRoot = true;
+    this.shareCtx = null;
+    this.isAtRoot = false;
+    this.searchActive = false;
+    this.searchQuery = '';
+    this.loading = true;
+    this.error = undefined;
+    this.contentRequestId++;
+    this.resourceShareService.listReceived().subscribe({
+      next: (shares) => {
+        this.receivedShares = shares.filter((s) => !s.revoked);
+        this.entries = this.receivedShares.map((s) => ({
+          kind: s.resourceType === 'FOLDER' ? 'folder' : 'file',
+          name: `${s.displayName} — from ${s.ownerUsername}`,
+          path: this.SHARE_ENTRY_PREFIX + s.id,
+          sizeLabel: '',
+          typeLabel:
+            s.resourceType === 'FOLDER' ? 'Shared folder' : 'Shared file',
+          lastModifiedAt: new Date(s.createdAt).getTime(),
+        }));
+        this.totalElements = this.entries.length;
+        this.loading = false;
+      },
+      error: () => {
+        this.error = 'Error loading shared items';
+        this.loading = false;
+      },
+    });
+  }
+
+  private openShareEntry(entry: CloudEntry): void {
+    const id = entry.path.slice(this.SHARE_ENTRY_PREFIX.length);
+    const share = this.receivedShares.find((s) => s.id === id);
+    if (!share) {
+      return;
+    }
+    this.shareCtx = { share, sub: '' };
+    if (share.resourceType === 'FOLDER') {
+      this.loadShareContent('');
+    } else {
+      // A shared single file: open it directly like any file.
+      this.openSharedFile({
+        kind: 'file',
+        name: share.displayName,
+        path: '',
+        sizeLabel: '',
+        typeLabel: 'file',
+        lastModifiedAt: 0,
+      });
+    }
+  }
+
+  loadShareContent(sub: string): void {
+    if (!this.shareCtx) {
+      return;
+    }
+    this.shareCtx = { share: this.shareCtx.share, sub };
+    this.loading = true;
+    this.error = undefined;
+    const requestId = ++this.contentRequestId;
+    this.resourceShareService
+      .listContent(this.shareCtx.share.id, sub)
+      .subscribe({
+        next: (items) => {
+          if (requestId !== this.contentRequestId) return;
+          this.entries = this.buildEntries(items);
+          this.totalElements = items.length;
+          this.loading = false;
+        },
+        error: (err) => {
+          if (requestId !== this.contentRequestId) return;
+          this.loading = false;
+          // 404 = the owner removed the folder (or revoked). Don't leave the
+          // previous rows on screen with an active share context; go back to
+          // the (now refreshed) shared list so the stale item disappears.
+          if ((err as { status?: number })?.status === 404) {
+            this.toast.info(
+              'No longer available',
+              'The owner removed or stopped sharing this item.',
+            );
+            this.enterSharedRoot();
+            return;
+          }
+          this.error = 'Error loading shared folder';
+        },
+      });
+  }
+
+  private openSharedFile(entry: CloudEntry): void {
+    if (this.isTextEditable(entry.name)) {
+      this.editFile(this.toFileRef(entry.path, entry.name));
+      return;
+    }
+    // Everything else can only be opened by fetching it, which is a download.
+    if (!this.canDownloadHere) {
+      this.toast.info(
+        'View only',
+        `${this.shareCtx?.share.ownerUsername ?? 'The owner'} shared this without download access, so "${entry.name}" cannot be opened here.`,
+      );
+      return;
+    }
+    this.downloadFileByPath(entry.path, entry.name);
+  }
+
+  /** Leaves the shared area and returns to the user's own root. */
+  exitSharedMode(): void {
+    this.inSharedRoot = false;
+    this.shareCtx = null;
+    this.receivedShares = [];
+    this.loadRootFolder();
+  }
+
+  /**
+   * Loads who-has-access data: own shares grouped by path + the member list that
+   * feeds both the avatar stack and the share dialog. Failures stay silent on
+   * purpose — this is decoration around the file list, and an error banner over a
+   * working cloud view would be misleading. The share dialog reports for itself.
+   */
+  private loadSharingMeta(): void {
+    this.loadMembers().subscribe({ error: () => undefined });
+    this.resourceShareService.listOwned().subscribe({
+      next: (shares) => {
+        this.sharesByPath.clear();
+        shares
+          .filter((s) => !s.revoked)
+          .forEach((s) => {
+            const list = this.sharesByPath.get(s.relativePath) ?? [];
+            list.push(s);
+            this.sharesByPath.set(s.relativePath, list);
+          });
+      },
+      error: () => undefined,
+    });
+  }
+
+  /**
+   * Fetches the member list and derives both uses from it: the avatar lookup and
+   * the recipient options of the share dialog. One source, so opening the dialog
+   * does not request the same list a second time.
+   */
+  private loadMembers(): Observable<UserDto[]> {
+    return this.userService.getAllUsers().pipe(
+      tap((users) => {
+        this.shareCandidates = users;
+        this.avatarByUsername.clear();
+        users.forEach((u) =>
+          this.avatarByUsername.set(
+            u.username,
+            this.userService.getProfilePictureUrl(u.profilePicture),
+          ),
+        );
+      }),
+    );
+  }
+
+  /** Active shares (recipients) of an own folder, for the avatar stack. */
+  recipientsFor(entry: CloudEntry): ResourceShareDto[] {
+    if (this.sharedMode || entry.kind !== 'folder') {
+      return [];
+    }
+    return this.sharesByPath.get(entry.path) ?? [];
+  }
+
+  avatarUrl(username: string): string | null {
+    return this.avatarByUsername.get(username) ?? null;
+  }
+
+  /** Comma-separated recipients of an own folder, for the access tooltip. */
+  accessNames(entry: CloudEntry): string {
+    return this.recipientsFor(entry)
+      .map((s) => s.recipientUsername)
+      .join(', ');
+  }
+
+  initialOf(username: string): string {
+    return (username || '?').charAt(0).toUpperCase();
+  }
+
+  /** Owner of a share row shown in the "Shared with me" list. */
+  private shareOf(entry: CloudEntry): ResourceShareDto | undefined {
+    if (!this.inSharedRoot) {
+      return undefined;
+    }
+    const id = entry.path.slice(this.SHARE_ENTRY_PREFIX.length);
+    return this.receivedShares.find((s) => s.id === id);
+  }
+
+  ownerOf(entry: CloudEntry): string | null {
+    return this.shareOf(entry)?.ownerUsername ?? null;
+  }
+
+  /** Recipient removes a share given to them (leaves it). */
+  confirmLeaveShare(entry: CloudEntry): void {
+    const share = this.shareOf(entry);
+    if (!share) {
+      return;
+    }
+    this.confirmationService.confirm({
+      header: 'Remove shared item',
+      message: `"${share.displayName}" will disappear from your Shared with me. ${share.ownerUsername}'s files are not deleted, and they can share it again later.`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Remove',
+      rejectLabel: 'Cancel',
+      acceptButtonStyleClass: 'p-button-danger p-button-sm',
+      rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => {
+        this.resourceShareService.leave(share.id).subscribe({
+          next: () => {
+            this.enterSharedRoot();
+            this.toast.success(
+              'Removed',
+              `"${share.displayName}" is no longer shared with you.`,
+            );
+          },
+          error: () =>
+            this.toast.error('Could not remove', 'Please try again.'),
+        });
+      },
+    });
+  }
+
+  /** Breadcrumb trail while in the shared area. */
+  get sharedBreadcrumbItems(): MenuItem[] {
+    const items: MenuItem[] = [
+      { label: 'My Cloud', command: () => this.exitSharedMode() },
+      { label: 'Shared with me', command: () => this.enterSharedRoot() },
+    ];
+    if (this.shareCtx) {
+      const share = this.shareCtx.share;
+      items.push({
+        label: share.displayName,
+        command: () => this.loadShareContent(''),
+      });
+      const parts = this.shareCtx.sub ? this.shareCtx.sub.split('/') : [];
+      parts.forEach((label, index) => {
+        const sub = parts.slice(0, index + 1).join('/');
+        items.push({ label, command: () => this.loadShareContent(sub) });
+      });
+    }
+    return items;
+  }
+
+  openShareWithMemberDialog(path: string, name: string) {
+    this.selectedEntryForMemberShare = { path, name };
+    this.shareRecipientUsername = '';
+    this.shareAllowDownload = true;
+    this.shareAllowEdit = false;
+    this.showShareWithMemberDialog = true;
+
+    // Already loaded with the rest of the sharing metadata; only fetch when that
+    // did not get through, so the dialog is not held up by a redundant request.
+    if (this.shareCandidates.length) {
+      return;
+    }
+    this.loadMembers().subscribe({
+      error: () =>
+        this.toast.error(
+          'Could not load members',
+          'The member list is unavailable.',
+        ),
+    });
+  }
+
+  submitShareWithMember() {
+    if (!this.selectedEntryForMemberShare || !this.shareRecipientUsername) {
+      return;
+    }
+    // VIEW is implied by every share; the other two are opt-in.
+    const permissions: SharePermission[] = ['VIEW'];
+    if (this.shareAllowDownload) {
+      permissions.push('DOWNLOAD');
+    }
+    if (this.shareAllowEdit) {
+      permissions.push('EDIT');
+    }
+
+    const { path, name } = this.selectedEntryForMemberShare;
+    const recipient = this.shareRecipientUsername;
+    this.creatingMemberShare = true;
+
+    this.resourceShareService
+      .create(path, recipient, permissions)
+      .pipe(finalize(() => (this.creatingMemberShare = false)))
+      .subscribe({
+        next: () => {
+          this.showShareWithMemberDialog = false;
+          this.loadSharingMeta();
+          this.toast.success(
+            'Shared',
+            `"${name}" is now available to ${recipient}.`,
+          );
+        },
+        error: (err: unknown) => {
+          const status = (err as { status?: number })?.status;
+          this.toast.error(
+            'Share failed',
+            status === 404
+              ? 'That member does not exist.'
+              : this.getErrorMessage(err) || 'Could not share this item.',
+          );
+        },
+      });
   }
 
   ngOnDestroy(): void {
@@ -659,6 +1081,10 @@ export class CloudComponent implements OnInit, OnDestroy {
   }
 
   navigateToRoot() {
+    if (this.sharedMode) {
+      this.exitSharedMode();
+      return;
+    }
     this.navigateToFolder(this.rootPath);
   }
 
@@ -723,6 +1149,24 @@ export class CloudComponent implements OnInit, OnDestroy {
   createNewFolder() {
     const folderName = this.newFolderName.trim();
     if (!folderName) return;
+    if (this.shareCtx) {
+      const ctx = this.shareCtx;
+      this.resourceShareService
+        .createFolder(ctx.share.id, ctx.sub, folderName)
+        .subscribe({
+          next: () => {
+            this.showCreateFolderDialog = false;
+            this.loadShareContent(ctx.sub);
+            this.toast.success(
+              'Folder created',
+              `"${folderName}" was created.`,
+            );
+          },
+          error: (err) =>
+            this.toast.error('Create failed', this.getErrorMessage(err)),
+        });
+      return;
+    }
     const currentPath = this.getRelativePath(this.currentFolder?.path || '/');
     this.cloudService.createFolder(currentPath, folderName).subscribe({
       next: () => {
@@ -789,29 +1233,76 @@ export class CloudComponent implements OnInit, OnDestroy {
     this.editingFile = file;
     this.newFileName = file.name;
     this.originalFileName = file.name;
-    const relativePath = this.getRelativePath(file.path);
 
+    const onContent = (content: string) => {
+      this.originalFileName = file.name;
+      this.originalFileContent = content;
+      this.fileContent = content;
+      this.saveStatus = 'saved';
+      this.editorMode = 'edit';
+      this.updatePreview();
+      this.updateOutline();
+      this.showFileEditor = true;
+    };
+    const onError = (err: unknown) => {
+      this.editingFile = null;
+      this.toast.error('Could not open file', this.getErrorMessage(err));
+    };
+
+    if (this.shareCtx) {
+      // file.path is relative to the share root in shared mode. Read through the
+      // view endpoint: opening a file is not downloading it, so this works on a
+      // share that grants VIEW only.
+      this.resourceShareService
+        .viewFile(this.shareCtx.share.id, file.path)
+        .subscribe({
+          next: (blob) =>
+            blob
+              .text()
+              .then(onContent)
+              .catch(() => onError(null)),
+          error: onError,
+        });
+      return;
+    }
+
+    const relativePath = this.getRelativePath(file.path);
     this.cloudService.getFileContent(relativePath).subscribe({
-      next: (content) => {
-        this.originalFileName = file.name;
-        this.originalFileContent = content;
-        this.fileContent = content;
-        this.saveStatus = 'saved';
-        this.editorMode = 'edit';
-        this.updatePreview();
-        this.updateOutline();
-        this.showFileEditor = true;
-      },
-      error: (err) => {
-        this.editingFile = null;
-        this.toast.error('Could not open file', this.getErrorMessage(err));
-      },
+      next: onContent,
+      error: onError,
     });
   }
 
   async saveFile() {
     const nameToSave = this.newFileName.trim();
     if (!nameToSave) return;
+
+    // Inside a share: save through the share API (EDIT-gated). Saving an existing
+    // file keeps its name — the upload would otherwise leave the original behind
+    // and add a second file under the new name. The name field is disabled to
+    // match; this is the guard for it.
+    if (this.shareCtx) {
+      const ctx = this.shareCtx;
+      const savedName = this.editingFile ? this.editingFile.name : nameToSave;
+      try {
+        const fileBlob = new Blob([this.fileContent], { type: 'text/plain' });
+        const file = new File([fileBlob], savedName);
+        await firstValueFrom(
+          this.resourceShareService.upload(ctx.share.id, ctx.sub, file),
+        );
+        this.originalFileContent = this.fileContent;
+        this.originalFileName = savedName;
+        this.loadShareContent(ctx.sub);
+        this.closeFileEditor();
+        this.toast.success(
+          this.editingFile ? 'File updated' : 'File created',
+          `"${savedName}" was saved.`,
+        );
+      } catch (err: unknown) {
+        this.toast.error('Save failed', this.getErrorMessage(err));
+      }
+      return;
+    }
 
     try {
       if (this.editingFile && nameToSave !== this.editingFile.name) {
@@ -849,6 +1340,21 @@ export class CloudComponent implements OnInit, OnDestroy {
   }
 
   uploadFile(folderPath: string, file: File) {
+    if (this.shareCtx) {
+      const ctx = this.shareCtx;
+      this.resourceShareService.upload(ctx.share.id, ctx.sub, file).subscribe({
+        next: () => {
+          this.loadShareContent(ctx.sub);
+          this.toast.success(
+            'Upload complete',
+            `"${file.name}" uploaded successfully.`,
+          );
+        },
+        error: (err) =>
+          this.toast.error('Upload failed', this.getErrorMessage(err)),
+      });
+      return;
+    }
     this.cloudService.uploadFile(folderPath, file).subscribe({
       next: () => {
         this.navigateToFolder(this.currentFolder?.path);
@@ -934,6 +1440,10 @@ export class CloudComponent implements OnInit, OnDestroy {
   }
 
   deleteFolder(folderPath: string) {
+    if (this.shareCtx) {
+      this.deleteInShare(folderPath);
+      return;
+    }
     const relativePath = this.getRelativePath(folderPath);
     this.cloudService.deleteFolder(relativePath).subscribe({
       next: () => {
@@ -941,6 +1451,22 @@ export class CloudComponent implements OnInit, OnDestroy {
         this.toast.success(
           'Folder deleted',
           `"${this.getNameFromPath(folderPath)}" removed.`,
+        );
+      },
+      error: (err) =>
+        this.toast.error('Delete failed', this.getErrorMessage(err)),
+    });
+  }
+  /** Deletes an entry inside the current share (path is share-root relative). */
+  private deleteInShare(path: string) {
+    const ctx = this.shareCtx;
+    if (!ctx) return;
+    this.resourceShareService.deleteEntry(ctx.share.id, path).subscribe({
+      next: () => {
+        this.loadShareContent(ctx.sub);
+        this.toast.success(
+          'Deleted',
+          `"${this.getNameFromPath(path)}" removed.`,
         );
       },
       error: (err) =>
@@ -961,6 +1487,10 @@ export class CloudComponent implements OnInit, OnDestroy {
   }
 
   deleteFile(filePath: string) {
+    if (this.shareCtx) {
+      this.deleteInShare(filePath);
+      return;
+    }
     const relativePath = this.getRelativePath(filePath);
     this.cloudService.deleteFile(relativePath).subscribe({
       next: () => {
@@ -988,6 +1518,24 @@ export class CloudComponent implements OnInit, OnDestroy {
     const newName = this.renameFolderName.trim();
     if (!folderPath || !folderName || !newName || newName === folderName)
       return;
+
+    if (this.shareCtx) {
+      const ctx = this.shareCtx;
+      this.resourceShareService
+        .rename(ctx.share.id, folderPath, newName)
+        .subscribe({
+          next: () => {
+            this.showRenameFolderDialog = false;
+            this.selectedFolderPathForRename = null;
+            this.selectedFolderNameForRename = null;
+            this.loadShareContent(ctx.sub);
+            this.toast.success('Folder renamed', `Now named "${newName}".`);
+          },
+          error: (err) =>
+            this.toast.error('Rename failed', this.getErrorMessage(err)),
+        });
+      return;
+    }
 
     const relativeSource = this.getRelativePath(folderPath);
     const relativeTargetDir = this.getParentRelativePath(folderPath);
@@ -1019,6 +1567,23 @@ export class CloudComponent implements OnInit, OnDestroy {
     const newName = this.renameFileName.trim();
     if (!file || !newName || newName === file.name) return;
 
+    if (this.shareCtx) {
+      const ctx = this.shareCtx;
+      this.resourceShareService
+        .rename(ctx.share.id, file.path, newName)
+        .subscribe({
+          next: () => {
+            this.showRenameFileDialog = false;
+            this.selectedFileForRename = null;
+            this.loadShareContent(ctx.sub);
+            this.toast.success('File renamed', `Now named "${newName}".`);
+          },
+          error: (err) =>
+            this.toast.error('Rename failed', this.getErrorMessage(err)),
+        });
+      return;
+    }
+
     const relativeSource = this.getRelativePath(file.path);
     const relativeTargetDir = this.getParentRelativePath(file.path);
     const relativeTarget = this.joinRelativePath(relativeTargetDir, newName);
@@ -1039,10 +1604,14 @@ export class CloudComponent implements OnInit, OnDestroy {
 
   downloadFile(file: FileDto) {
     const pathKey = file.path;
-    const relativePath = this.getRelativePath(file.path);
     this.downloadingPaths.add(pathKey);
-    this.cloudService
-      .getFileBlob(relativePath)
+    const blob$ = this.shareCtx
+      ? this.resourceShareService.downloadFile(
+          this.shareCtx.share.id,
+          file.path,
+        )
+      : this.cloudService.getFileBlob(this.getRelativePath(file.path));
+    blob$
       .pipe(
         finalize(() => {
           this.downloadingPaths.delete(pathKey);
@@ -1302,8 +1871,9 @@ export class CloudComponent implements OnInit, OnDestroy {
     }
   }
 
-  openCreateShareDialog(filePath: string, fileName: string) {
+  openCreateShareDialog(filePath: string, fileName: string, isFolder = false) {
     this.selectedFileForShare = { path: filePath, name: fileName };
+    this.selectedShareIsFolder = isFolder;
     this.shareExpiryMinutes = 1440;
     this.sharePassword = '';
     this.showCreateShareDialog = true;
@@ -1359,52 +1929,6 @@ export class CloudComponent implements OnInit, OnDestroy {
         this.toast.error('Copy failed', 'Please manually copy the URL.');
       },
     );
-  }
-
-  openSharedLinksDialog() {
-    this.showSharedLinksDialog = true;
-    this.loadSharedLinks();
-  }
-
-  loadSharedLinks() {
-    this.loadingSharedLinks = true;
-    this.cloudService
-      .listSecureSendLinks()
-      .pipe(finalize(() => (this.loadingSharedLinks = false)))
-      .subscribe({
-        next: (links) => {
-          this.sharedLinks = links;
-        },
-        error: (err) => {
-          this.toast.error(
-            'Error loading links',
-            this.getErrorMessage(err) || 'Could not fetch active share links.',
-          );
-        },
-      });
-  }
-
-  revokeShareLink(link: SecureSendLinkDto) {
-    this.revokingLinkId = link.id;
-    this.cloudService
-      .revokeSecureSendLink(link.id)
-      .pipe(finalize(() => (this.revokingLinkId = null)))
-      .subscribe({
-        next: () => {
-          link.isRevoked = true;
-          link.revokedAt = new Date().toISOString();
-          this.toast.success(
-            'Link revoked',
-            `Share link for "${link.fileName}" was revoked.`,
-          );
-        },
-        error: (err) => {
-          this.toast.error(
-            'Revocation failed',
-            this.getErrorMessage(err) || 'Could not revoke share link.',
-          );
-        },
-      });
   }
 
   isMarkdownFile(fileName: string): boolean {
