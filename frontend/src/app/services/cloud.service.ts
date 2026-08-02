@@ -90,7 +90,10 @@ export class CloudService {
   }
 
   getFolderSize(relativePath?: string): Observable<number> {
-    const params = new HttpParams().set('path', this.normalizePath(relativePath));
+    const params = new HttpParams().set(
+      'path',
+      this.normalizePath(relativePath),
+    );
     return this.http.get<number>(`${this.apiUrl}/folders/size`, { params });
   }
 
