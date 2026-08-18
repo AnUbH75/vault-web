@@ -395,7 +395,9 @@ describe('PrivateChatDialogComponent duplicate message detection', () => {
     fixture.destroy();
   });
 
-  function baseMessage(overrides: Partial<ChatMessageDto> = {}): ChatMessageDto {
+  function baseMessage(
+    overrides: Partial<ChatMessageDto> = {},
+  ): ChatMessageDto {
     return {
       timestamp: '2026-08-19T10:00:00.000Z',
       senderUsername: 'alice',
@@ -406,7 +408,7 @@ describe('PrivateChatDialogComponent duplicate message detection', () => {
     };
   }
 
-describe('id-based matching (clientMessageId present)', () => {
+  describe('id-based matching (clientMessageId present)', () => {
     it('treats two messages with the same clientMessageId as duplicates', () => {
       (component as any).messages = [
         {
@@ -442,7 +444,7 @@ describe('id-based matching (clientMessageId present)', () => {
     });
   });
 
- describe('fallback matching (no clientMessageId — legacy/pre-migration messages)', () => {
+  describe('fallback matching (no clientMessageId — legacy/pre-migration messages)', () => {
     it('regression test for #298: treats group message echo as duplicate despite undefined vs null privateChatId', () => {
       (component as any).messages = [
         {
@@ -505,7 +507,9 @@ describe('id-based matching (clientMessageId present)', () => {
   it('end-to-end: sending a message then receiving its own echo does not duplicate it in the view', fakeAsync(() => {
     component.newMessage = 'hello there';
 
-    const e2eeService = TestBed.inject(E2eeService) as jasmine.SpyObj<E2eeService>;
+    const e2eeService = TestBed.inject(
+      E2eeService,
+    ) as jasmine.SpyObj<E2eeService>;
     e2eeService.encryptForDevices.and.resolveTo({
       senderDeviceId: 'device-1',
     } as any);

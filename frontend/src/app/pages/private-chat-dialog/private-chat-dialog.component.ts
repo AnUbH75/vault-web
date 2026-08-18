@@ -825,18 +825,18 @@ export class PrivateChatDialogComponent
 
   private isDuplicateMessage(message: ChatMessageDto): boolean {
     if (message.clientMessageId) {
-        return this.messages.some(
-          (existing) => existing.clientMessageId === message.clientMessageId,
-        );
-      }
-
       return this.messages.some(
-        (existing) =>
-          (existing.privateChatId ?? null) === (message.privateChatId ?? null) &&
-          (existing.groupId ?? null) === (message.groupId ?? null) &&
-          existing.senderUsername === message.senderUsername &&
-          existing.timestamp === message.timestamp,
+        (existing) => existing.clientMessageId === message.clientMessageId,
       );
+    }
+
+    return this.messages.some(
+      (existing) =>
+        (existing.privateChatId ?? null) === (message.privateChatId ?? null) &&
+        (existing.groupId ?? null) === (message.groupId ?? null) &&
+        existing.senderUsername === message.senderUsername &&
+        existing.timestamp === message.timestamp,
+    );
   }
 
   getAvatarPicUrl(senderUsername: string | undefined): string | null {
