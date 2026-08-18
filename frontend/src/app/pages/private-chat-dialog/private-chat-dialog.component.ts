@@ -45,6 +45,7 @@ interface ChatMessageView {
   privateChatId?: number;
   groupId?: number | null;
   timestamp: string;
+  clientMessageId?: string;
 }
 
 interface EncryptedMessageBodyV1 {
@@ -415,6 +416,7 @@ export class PrivateChatDialogComponent
       privateChatId: message.privateChatId || undefined,
       groupId: message.groupId || undefined,
       timestamp,
+      clientMessageId: message.clientMessageId,
     };
   }
 
@@ -517,6 +519,7 @@ export class PrivateChatDialogComponent
         groupId: this.isGroupChat ? this.groupId : null,
         senderDeviceId: payload.senderDeviceId,
         e2eePayload: JSON.stringify(payload),
+        clientMessageId: crypto.randomUUID(),
       };
 
       const isConnected = await this.wsService.ensureConnected();
@@ -821,13 +824,19 @@ export class PrivateChatDialogComponent
   }
 
   private isDuplicateMessage(message: ChatMessageDto): boolean {
-    return this.messages.some(
-      (existing) =>
-        existing.privateChatId === message.privateChatId &&
-        existing.groupId === message.groupId &&
-        existing.senderUsername === message.senderUsername &&
-        existing.timestamp === message.timestamp,
-    );
+    if (message.clientMessageId) {
+        return this.messages.some(
+          (existing) => existing.clientMessageId === message.clientMessageId,
+        );
+      }
+
+      return this.messages.some(
+        (existing) =>
+          (existing.privateChatId ?? null) === (message.privateChatId ?? null) &&
+          (existing.groupId ?? null) === (message.groupId ?? null) &&
+          existing.senderUsername === message.senderUsername &&
+          existing.timestamp === message.timestamp,
+      );
   }
 
   getAvatarPicUrl(senderUsername: string | undefined): string | null {
