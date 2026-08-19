@@ -490,7 +490,7 @@ describe('CloudComponent Unsaved Changes Flow', () => {
       });
     });
 
-    it('should transition saveStatus through unsaved -> saving -> saved during autosave', async () => {
+    it('does not autosave or reload the folder while typing (#300 regression)', () => {
       component.showFileEditor = true;
       component.newFileName = 'note.md';
       component.fileContent = 'new markdown';
@@ -498,19 +498,36 @@ describe('CloudComponent Unsaved Changes Flow', () => {
       component.originalFileName = 'note.md';
       component.currentFolder = { path: '/root', name: 'root' } as any;
 
-      cloudMock.uploadFile.and.returnValue(of({} as any));
+      component.onContentChange();
+
+      // Dirty state still tracked correctly, with no background save kicked off.
+      expect(component.saveStatus).toBe('unsaved');
+      expect(component.isEditorDirty).toBeTrue();
+
+      // Well past the old 2s autosave delay — nothing should fire.
+      jasmine.clock().tick(5000);
+
+      expect(cloudMock.uploadFile).not.toHaveBeenCalled();
+      expect(cloudMock.getFolderByPath).not.toHaveBeenCalled();
+      expect(component.saveStatus).toBe('unsaved');
+      expect(component.fileContent).toBe('new markdown');
+      expect(component.originalFileContent).toBe(''); // unchanged: no autosave wrote it
+    });
+
+    it('still updates the local outline and preview while typing, without saving', () => {
+      component.showFileEditor = true;
+      component.newFileName = 'note.md';
+      component.originalFileName = 'note.md';
+      component.originalFileContent = '';
+      component.fileContent = '# New Heading\nbody text';
+      component.currentFolder = { path: '/root', name: 'root' } as any;
 
       component.onContentChange();
-      expect(component.saveStatus).toBe('unsaved');
 
-      jasmine.clock().tick(2000);
-
-      // Wait for async autosave Promise to resolve
-      await component.autosaveFile();
-
-      expect(component.saveStatus).toBe('saved');
-      expect(component.originalFileContent).toBe('new markdown');
-      expect(component.isEditorDirty).toBeFalse();
+      expect(component.outline).toEqual([{ text: 'New Heading', level: 1 }]);
+      expect(component.previewHtml.toString()).toContain('New Heading');
+      expect(cloudMock.uploadFile).not.toHaveBeenCalled();
+      expect(cloudMock.getFolderByPath).not.toHaveBeenCalled();
     });
   });
 });
