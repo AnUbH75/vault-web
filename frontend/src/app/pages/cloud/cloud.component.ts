@@ -113,7 +113,6 @@ export class CloudComponent implements OnInit, OnDestroy {
   originalFileContent = '';
   outline: { text: string; level: number }[] = [];
   saveStatus: 'saved' | 'saving' | 'unsaved' = 'saved';
-  autosaveTimer: ReturnType<typeof setTimeout> | null = null;
   editorMode: 'edit' | 'preview' | 'split' = 'edit';
   previewHtml: SafeHtml = '';
 
@@ -1788,78 +1787,14 @@ export class CloudComponent implements OnInit, OnDestroy {
   }
 
   onContentChange() {
-    if (this.isEditorDirty) {
-      this.saveStatus = 'unsaved';
-      this.triggerAutosave();
-    } else {
-      this.saveStatus = 'saved';
-      if (this.autosaveTimer) {
-        clearTimeout(this.autosaveTimer);
-        this.autosaveTimer = null;
-      }
-    }
+    this.saveStatus = this.isEditorDirty ? 'unsaved' : 'saved';
     if (this.isMarkdownFile(this.newFileName)) {
       this.updateOutline();
       this.updatePreview();
     }
   }
 
-  triggerAutosave() {
-    if (this.autosaveTimer) {
-      clearTimeout(this.autosaveTimer);
-    }
-    this.autosaveTimer = setTimeout(() => {
-      this.autosaveFile();
-    }, 2000);
-  }
-
-  async autosaveFile() {
-    const nameToSave = this.newFileName.trim();
-    if (!nameToSave || !this.isEditorDirty) return;
-
-    // Background autosave only saves content edits under existing filename.
-    // File renames are handled when the user explicitly clicks Save.
-    if (this.editingFile && this.fileContent === this.originalFileContent) {
-      return;
-    }
-
-    this.saveStatus = 'saving';
-
-    try {
-      const targetName = this.editingFile ? this.editingFile.name : nameToSave;
-      const currentPath = this.getRelativePath(this.currentFolder?.path || '/');
-      const fileBlob = new Blob([this.fileContent], { type: 'text/plain' });
-      const file = new File([fileBlob], targetName);
-      await firstValueFrom(this.cloudService.uploadFile(currentPath, file));
-
-      if (!this.editingFile) {
-        const relativeTarget = this.joinRelativePath(currentPath, targetName);
-        this.editingFile = {
-          path: relativeTarget,
-          name: targetName,
-          size: fileBlob.size,
-          mimeType: 'text/markdown',
-        };
-        this.newFileName = targetName;
-        this.originalFileName = targetName;
-      }
-
-      this.originalFileContent = this.fileContent;
-      this.saveStatus = 'saved';
-      this.reloadCurrentFolder();
-    } catch (err: unknown) {
-      this.saveStatus = 'unsaved';
-      console.error('Autosave failed:', err);
-      this.toast.error('Autosave failed', this.getErrorMessage(err));
-    }
-  }
-
   closeFileEditor() {
-    if (this.autosaveTimer) {
-      clearTimeout(this.autosaveTimer);
-      this.autosaveTimer = null;
-    }
-
     this.showFileEditor = false;
     this.editingFile = null;
     this.newFileName = '';
