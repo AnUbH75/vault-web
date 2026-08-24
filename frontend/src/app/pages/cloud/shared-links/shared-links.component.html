@@ -129,6 +129,7 @@
           <th>Shared item</th>
           <th>Shared</th>
           <th>Expires</th>
+          <th>Last opened</th>
           <th>Protection</th>
           <th>Status</th>
           <th class="text-right">Actions</th>
@@ -152,7 +153,18 @@
             {{ link.fileName }}
           </td>
           <td class="shared-muted">{{ link.createdAt | date: "medium" }}</td>
-          <td class="shared-muted">{{ link.expiresAt | date: "medium" }}</td>
+          <td class="shared-muted">
+            <span *ngIf="link.expiresAt">{{
+              link.expiresAt | date: "medium"
+            }}</span>
+            <span *ngIf="!link.expiresAt">Never</span>
+          </td>
+          <td class="shared-muted">
+            <span *ngIf="link.lastAccessedAt">{{
+              link.lastAccessedAt | date: "medium"
+            }}</span>
+            <span *ngIf="!link.lastAccessedAt">Never opened</span>
+          </td>
           <td class="shared-muted">
             <span *ngIf="link.hasPassword"
               ><i class="pi pi-lock"></i> Password</span
@@ -180,13 +192,25 @@
                 tooltipPosition="top"
                 ariaLabel="Revoke share link"
               ></p-button>
+              <p-button
+                label="Delete"
+                icon="pi pi-trash"
+                severity="danger"
+                styleClass="p-button-text p-button-sm"
+                [disabled]="isProcessing(link.id)"
+                [loading]="isProcessing(link.id)"
+                (click)="confirmDeleteLink(link)"
+                pTooltip="Remove this link from your list permanently"
+                tooltipPosition="top"
+                ariaLabel="Delete share link"
+              ></p-button>
             </div>
           </td>
         </tr>
       </ng-template>
       <ng-template pTemplate="emptymessage">
         <tr>
-          <td colspan="6" class="shared-empty text-xxs sm:text-xs">
+          <td colspan="7" class="shared-empty text-xxs sm:text-xs">
             You have not created any public links yet.
           </td>
         </tr>

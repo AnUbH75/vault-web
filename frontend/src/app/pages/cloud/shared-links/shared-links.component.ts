@@ -129,12 +129,19 @@ export class SharedLinksComponent implements OnInit {
   // --- public links ----------------------------------------------------------
 
   isExpired(link: SecureSendLinkDto): boolean {
-    return new Date(link.expiresAt).getTime() <= Date.now();
+    return (
+      link.expiresAt != null && new Date(link.expiresAt).getTime() <= Date.now()
+    );
   }
 
-  linkStatus(link: SecureSendLinkDto): 'revoked' | 'expired' | 'active' {
+  linkStatus(
+    link: SecureSendLinkDto,
+  ): 'revoked' | 'expired' | 'active' | 'never-expires' {
     if (link.isRevoked) {
       return 'revoked';
+    }
+    if (link.expiresAt == null) {
+      return 'never-expires';
     }
     return this.isExpired(link) ? 'expired' : 'active';
   }
@@ -170,6 +177,40 @@ export class SharedLinksComponent implements OnInit {
           this.toast.error(
             'Revocation failed',
             'The share link could not be revoked.',
+          ),
+      });
+  }
+
+  confirmDeleteLink(link: SecureSendLinkDto): void {
+    this.confirmationService.confirm({
+      header: 'Delete share link',
+      message: `This permanently removes the link to "${link.fileName}" from your list. This cannot be undone.`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Delete',
+      rejectLabel: 'Cancel',
+      acceptButtonStyleClass: 'p-button-danger p-button-sm',
+      rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => this.deleteLink(link),
+    });
+  }
+
+  private deleteLink(link: SecureSendLinkDto): void {
+    this.processingIds.add(link.id);
+    this.cloudService
+      .deleteSecureSendLink(link.id)
+      .pipe(finalize(() => this.processingIds.delete(link.id)))
+      .subscribe({
+        next: () => {
+          this.links = this.links.filter((l) => l.id !== link.id);
+          this.toast.success(
+            'Link deleted',
+            `The share link for "${link.fileName}" has been removed.`,
+          );
+        },
+        error: () =>
+          this.toast.error(
+            'Delete failed',
+            'The share link could not be deleted.',
           ),
       });
   }
