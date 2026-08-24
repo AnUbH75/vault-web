@@ -8,11 +8,14 @@ export interface SecureSendLinkDto {
   resourceType?: SharedResourceType;
   shareUrl?: string;
   token?: string;
-  expiresAt: string | Date;
+  /** Null means the link never expires. */
+  expiresAt: string | Date | null;
   hasPassword?: boolean;
   isRevoked?: boolean;
   revokedAt?: string | Date | null;
   createdAt: string | Date;
+  /** Null if the link has never been opened. */
+  lastAccessedAt?: string | Date | null;
 }
 
 /**
@@ -29,6 +32,7 @@ export interface PublicShareDto {
 
 export interface CreateSecureSendRequestDto {
   filePath: string;
-  expiresAt: string;
+  /** Omit or null for a link that never expires. */
+  expiresAt: string | null;
   password?: string;
 }
