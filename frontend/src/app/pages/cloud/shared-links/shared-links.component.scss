@@ -88,3 +88,30 @@
   gap: 0.5rem;
   flex-wrap: wrap;
 }
+
+.shared-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 9999px;
+  text-transform: capitalize;
+
+  &.is-active {
+    background: var(--green-100, #dcfce7);
+    color: var(--green-700, #15803d);
+  }
+
+  &.is-expired {
+    background: var(--surface-200, #e5e7eb);
+    color: var(--surface-600, #4b5563);
+  }
+
+  &.is-revoked {
+    background: var(--red-100, #fee2e2);
+    color: var(--red-700, #b91c1c);
+  }
+
+  &.is-never-expires {
+    background: var(--blue-100, #dbeafe);
+    color: var(--blue-700, #1d4ed8);
+  }
+}

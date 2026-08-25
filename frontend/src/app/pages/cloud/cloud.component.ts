@@ -160,6 +160,7 @@ export class CloudComponent implements OnInit, OnDestroy {
     { label: '1 Day', value: 1440 },
     { label: '7 Days', value: 10080 },
     { label: '30 Days', value: 43200 },
+    { label: 'Never', value: 0 },
   ];
 
   newFolderName = '';
@@ -1901,11 +1902,13 @@ export class CloudComponent implements OnInit, OnDestroy {
 
     this.creatingShareLink = true;
     const { path, name } = this.selectedFileForShare;
+    const expiryMinutes = Number(this.shareExpiryMinutes);
+    const neverExpires = expiryMinutes === 0;
 
     this.cloudService
       .createSecureSendLink(
         path,
-        Number(this.shareExpiryMinutes),
+        neverExpires ? null : expiryMinutes,
         this.sharePassword,
       )
       .pipe(finalize(() => (this.creatingShareLink = false)))

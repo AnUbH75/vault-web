@@ -33,6 +33,7 @@ interface RawSecureSendResponse {
   isRevoked?: boolean;
   revokedAt?: string | null;
   createdAt?: string;
+  lastAccessedAt?: string | null;
 }
 
 @Injectable({
@@ -264,13 +265,14 @@ export class CloudService {
 
   createSecureSendLink(
     filePath: string,
-    expiryMinutes = 1440,
+    expiryMinutes: number | null = 1440,
     password?: string,
   ): Observable<SecureSendLinkDto> {
     const normPath = this.normalizePath(filePath);
-    const expiresAt = new Date(
-      Date.now() + expiryMinutes * 60_000,
-    ).toISOString();
+    const expiresAt =
+      expiryMinutes == null
+        ? null
+        : new Date(Date.now() + expiryMinutes * 60_000).toISOString();
     const payload: CreateSecureSendRequestDto = {
       filePath: normPath,
       expiresAt,
@@ -299,6 +301,13 @@ export class CloudService {
     return this.http.delete<void>(`${this.apiUrl}/secure-sends/${encodedId}`);
   }
 
+  deleteSecureSendLink(id: string): Observable<void> {
+    const encodedId = encodeURIComponent(id);
+    return this.http.delete<void>(
+      `${this.apiUrl}/secure-sends/${encodedId}/permanent`,
+    );
+  }
+
   private mapSecureSendLink(
     res: RawSecureSendResponse,
     defaultPath = '',
@@ -322,7 +331,7 @@ export class CloudService {
       fileName,
       shareUrl,
       token,
-      expiresAt: res?.expiresAt || '',
+      expiresAt: res?.expiresAt ?? null,
       hasPassword: Boolean(
         res?.passwordProtected ??
         res?.hasPassword ??
@@ -332,6 +341,7 @@ export class CloudService {
       isRevoked: Boolean(res?.revoked ?? res?.isRevoked ?? false),
       revokedAt: res?.revokedAt || null,
       createdAt: res?.createdAt || '',
+      lastAccessedAt: res?.lastAccessedAt ?? null,
     };
   }
 }
