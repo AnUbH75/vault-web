@@ -17,6 +17,7 @@ import { PasswordManagerVaultService } from '../../services/password-manager-vau
 import { PasswordManagerUnlockService } from '../../services/password-manager-unlock.service';
 import { UiToastService } from '../../core/services/ui-toast.service';
 import { UserService } from '../../services/user.service';
+import { PasswordGeneratorComponent } from './password-generator.component';
 
 const passwordMatchValidator: ValidatorFn = (
   control: AbstractControl,
@@ -24,7 +25,6 @@ const passwordMatchValidator: ValidatorFn = (
   const password = control.get('password');
   const confirmPassword = control.get('confirmPassword');
 
-  // Nur Fehler zurückgeben, wenn beide Werte da sind und nicht übereinstimmen
   if (password && confirmPassword && password.value !== confirmPassword.value) {
     return { passwordMismatch: true };
   }
@@ -34,7 +34,7 @@ const passwordMatchValidator: ValidatorFn = (
 @Component({
   selector: 'app-password-manager',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, PasswordGeneratorComponent],
   templateUrl: './password-manager.component.html',
   styleUrl: './password-manager.component.scss',
 })
@@ -68,6 +68,8 @@ export class PasswordManagerComponent implements OnInit {
   confirmPasswordVisible = false;
   showSetupMasterPassword = false;
   showUnlockMasterPassword = false;
+
+  isGeneratorOpen = false;
 
   constructor(
     private fb: FormBuilder,
@@ -105,6 +107,17 @@ export class PasswordManagerComponent implements OnInit {
     });
   }
 
+  toggleGenerator(): void {
+    this.isGeneratorOpen = !this.isGeneratorOpen;
+  }
+
+  onPasswordGenerated(password: string): void {
+    this.createForm.patchValue({ password, confirmPassword: password });
+    this.createPasswordVisible = true;
+    this.confirmPasswordVisible = true;
+    this.isGeneratorOpen = false;
+  }
+
   ngOnInit(): void {
     this.updateUnlockState();
     this.refreshVaultStatus();
@@ -130,6 +143,7 @@ export class PasswordManagerComponent implements OnInit {
 
     this.createPasswordVisible = false;
     this.confirmPasswordVisible = false;
+    this.isGeneratorOpen = false;
 
     this.createForm.reset();
     this.isCreateOpen = true;
@@ -146,6 +160,7 @@ export class PasswordManagerComponent implements OnInit {
     this.editingId = entry.id;
     this.createPasswordVisible = false;
     this.confirmPasswordVisible = false;
+    this.isGeneratorOpen = false;
 
     this.createForm.reset({
       name: entry.name ?? '',
@@ -163,6 +178,7 @@ export class PasswordManagerComponent implements OnInit {
       return;
     }
     this.isCreateOpen = false;
+    this.isGeneratorOpen = false;
   }
 
   submitCreate(): void {
