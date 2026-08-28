@@ -24,12 +24,19 @@ const passwordMatchValidator: ValidatorFn = (
   const password = control.get('password');
   const confirmPassword = control.get('confirmPassword');
 
-  // Nur Fehler zurückgeben, wenn beide Werte da sind und nicht übereinstimmen
   if (password && confirmPassword && password.value !== confirmPassword.value) {
     return { passwordMismatch: true };
   }
   return null;
 };
+
+const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const LOWER = 'abcdefghijklmnopqrstuvwxyz';
+const NUMBERS = '0123456789';
+const SPECIAL = '!@#$%^&*()_+-=[]{}|;:,.<>?';
+const AMBIGUOUS = new Set(['l', 'I', '1', 'O', '0']);
+
+type Strength = 'weak' | 'medium' | 'strong';
 
 @Component({
   selector: 'app-password-manager',
@@ -69,6 +76,17 @@ export class PasswordManagerComponent implements OnInit {
   showSetupMasterPassword = false;
   showUnlockMasterPassword = false;
 
+  // --- Password generator state ---
+  isGeneratorOpen = false;
+  generatorLength = 16;
+  generatorUseUpper = true;
+  generatorUseLower = true;
+  generatorUseNumbers = true;
+  generatorUseSpecial = true;
+  generatorReadableOnly = false;
+  generatedPreview = '';
+  generatorError: string | null = null;
+
   constructor(
     private fb: FormBuilder,
     private passwordManagerService: PasswordManagerService,
@@ -105,6 +123,97 @@ export class PasswordManagerComponent implements OnInit {
     });
   }
 
+  toggleGenerator(): void {
+    this.isGeneratorOpen = !this.isGeneratorOpen;
+    if (this.isGeneratorOpen && !this.generatedPreview) {
+      this.generatePassword();
+    }
+  }
+
+  onGeneratorOptionChange(): void {
+    this.generatePassword();
+  }
+
+  onGeneratorLengthChange(event: Event): void {
+    const value = Number((event.target as HTMLInputElement).value);
+    this.generatorLength = value;
+    this.generatePassword();
+  }
+
+  private buildGeneratorPool(): string {
+    let pool = '';
+    if (this.generatorUseUpper) pool += UPPER;
+    if (this.generatorUseLower) pool += LOWER;
+    if (this.generatorUseNumbers) pool += NUMBERS;
+    if (this.generatorUseSpecial) pool += SPECIAL;
+    if (this.generatorReadableOnly) {
+      pool = Array.from(pool)
+        .filter((c) => !AMBIGUOUS.has(c))
+        .join('');
+    }
+    return pool;
+  }
+
+  generatePassword(): void {
+    const pool = this.buildGeneratorPool();
+    if (!pool) {
+      this.generatorError = 'Select at least one character type.';
+      this.generatedPreview = '';
+      return;
+    }
+    this.generatorError = null;
+
+    const maxValid = Math.floor(256 / pool.length) * pool.length;
+    const bytes = new Uint8Array(this.generatorLength * 2);
+    crypto.getRandomValues(bytes);
+
+    let result = '';
+    let i = 0;
+    while (result.length < this.generatorLength) {
+      if (i >= bytes.length) {
+        crypto.getRandomValues(bytes);
+        i = 0;
+      }
+      const byte = bytes[i++];
+      if (byte < maxValid) {
+        result += pool[byte % pool.length];
+      }
+    }
+    this.generatedPreview = result;
+  }
+
+  get generatorStrength(): Strength {
+    const variety =
+      Number(this.generatorUseUpper) +
+      Number(this.generatorUseLower) +
+      Number(this.generatorUseNumbers) +
+      Number(this.generatorUseSpecial);
+    const poolSize = this.buildGeneratorPool().length || 1;
+    const bits = this.generatorLength * Math.log2(poolSize);
+    if (bits < 40 || variety < 2) return 'weak';
+    if (bits < 70) return 'medium';
+    return 'strong';
+  }
+
+  useGeneratedPassword(): void {
+    if (!this.generatedPreview || this.generatorError) {
+      return;
+    }
+    this.createForm.patchValue({
+      password: this.generatedPreview,
+      confirmPassword: this.generatedPreview,
+    });
+    this.createPasswordVisible = true;
+    this.confirmPasswordVisible = true;
+    this.isGeneratorOpen = false;
+  }
+
+  private resetGenerator(): void {
+    this.isGeneratorOpen = false;
+    this.generatedPreview = '';
+    this.generatorError = null;
+  }
+
   ngOnInit(): void {
     this.updateUnlockState();
     this.refreshVaultStatus();
@@ -130,6 +239,7 @@ export class PasswordManagerComponent implements OnInit {
 
     this.createPasswordVisible = false;
     this.confirmPasswordVisible = false;
+    this.resetGenerator();
 
     this.createForm.reset();
     this.isCreateOpen = true;
@@ -146,6 +256,7 @@ export class PasswordManagerComponent implements OnInit {
     this.editingId = entry.id;
     this.createPasswordVisible = false;
     this.confirmPasswordVisible = false;
+    this.resetGenerator();
 
     this.createForm.reset({
       name: entry.name ?? '',
@@ -163,6 +274,7 @@ export class PasswordManagerComponent implements OnInit {
       return;
     }
     this.isCreateOpen = false;
+    this.resetGenerator();
   }
 
   submitCreate(): void {
