@@ -20,7 +20,9 @@
       (click)="selectCategory('recent')"
       aria-label="Recently used"
       title="Recently used"
-    >🕓</button>
+    >
+      🕓
+    </button>
     <button
       *ngFor="let category of categories"
       type="button"
@@ -29,7 +31,9 @@
       (click)="selectCategory(category.id)"
       [attr.aria-label]="category.label"
       [title]="category.label"
-    >{{ category.icon }}</button>
+    >
+      {{ category.icon }}
+    </button>
   </div>
 
   <div class="emoji-picker-grid" role="listbox" aria-label="Emoji results">
@@ -42,8 +46,12 @@
       (keydown)="onGridKeydown($event, i)"
       [attr.aria-label]="emoji.name"
       [title]="emoji.name"
-    >{{ emoji.char }}</button>
+    >
+      {{ emoji.char }}
+    </button>
 
-    <div *ngIf="!visibleEmojis.length" class="emoji-picker-empty">No emoji found</div>
+    <div *ngIf="!visibleEmojis.length" class="emoji-picker-empty">
+      No emoji found
+    </div>
   </div>
 </div>

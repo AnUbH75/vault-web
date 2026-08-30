@@ -1,10 +1,22 @@
 import { CommonModule } from '@angular/common';
 import {
-  Component, ElementRef, EventEmitter, Input, OnInit,
-  Output, ViewChild, ViewChildren, QueryList,
+  Component,
+  ElementRef,
+  EventEmitter,
+  Input,
+  OnInit,
+  Output,
+  ViewChild,
+  ViewChildren,
+  QueryList,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { EMOJI_CATEGORIES, EMOJI_LIST, EmojiCategoryId, EmojiEntry } from './emoji-data';
+import {
+  EMOJI_CATEGORIES,
+  EMOJI_LIST,
+  EmojiCategoryId,
+  EmojiEntry,
+} from './emoji-data';
 
 const RECENTS_LIMIT = 24;
 const RECENTS_STORAGE_PREFIX = 'chat.emojiPicker.recents.';
@@ -23,7 +35,9 @@ export class EmojiPickerComponent implements OnInit {
   @Output() emojiSelected = new EventEmitter<string>();
 
   @ViewChild('searchInput') searchInputRef?: ElementRef<HTMLInputElement>;
-  @ViewChildren('emojiButton') emojiButtons!: QueryList<ElementRef<HTMLButtonElement>>;
+  @ViewChildren('emojiButton') emojiButtons!: QueryList<
+    ElementRef<HTMLButtonElement>
+  >;
 
   readonly categories = EMOJI_CATEGORIES;
 
@@ -73,11 +87,20 @@ export class EmojiPickerComponent implements OnInit {
 
     let nextIndex = index;
     switch (event.key) {
-      case 'ArrowRight': nextIndex = Math.min(index + 1, buttons.length - 1); break;
-      case 'ArrowLeft': nextIndex = Math.max(index - 1, 0); break;
-      case 'ArrowDown': nextIndex = Math.min(index + GRID_COLUMNS, buttons.length - 1); break;
-      case 'ArrowUp': nextIndex = Math.max(index - GRID_COLUMNS, 0); break;
-      default: return;
+      case 'ArrowRight':
+        nextIndex = Math.min(index + 1, buttons.length - 1);
+        break;
+      case 'ArrowLeft':
+        nextIndex = Math.max(index - 1, 0);
+        break;
+      case 'ArrowDown':
+        nextIndex = Math.min(index + GRID_COLUMNS, buttons.length - 1);
+        break;
+      case 'ArrowUp':
+        nextIndex = Math.max(index - GRID_COLUMNS, 0);
+        break;
+      default:
+        return;
     }
 
     event.preventDefault();
@@ -85,8 +108,10 @@ export class EmojiPickerComponent implements OnInit {
   }
 
   private pushRecent(emoji: EmojiEntry): void {
-    this.recents = [emoji, ...this.recents.filter((e) => e.char !== emoji.char)]
-      .slice(0, RECENTS_LIMIT);
+    this.recents = [
+      emoji,
+      ...this.recents.filter((e) => e.char !== emoji.char),
+    ].slice(0, RECENTS_LIMIT);
     this.saveRecents();
   }
 
@@ -95,7 +120,9 @@ export class EmojiPickerComponent implements OnInit {
       const raw = localStorage.getItem(this.recentsKey());
       if (!raw) return [];
       const chars: string[] = JSON.parse(raw);
-      return chars.map((c) => this.emojiByChar.get(c)).filter((e): e is EmojiEntry => !!e);
+      return chars
+        .map((c) => this.emojiByChar.get(c))
+        .filter((e): e is EmojiEntry => !!e);
     } catch {
       return [];
     }
@@ -103,7 +130,10 @@ export class EmojiPickerComponent implements OnInit {
 
   private saveRecents(): void {
     try {
-      localStorage.setItem(this.recentsKey(), JSON.stringify(this.recents.map((e) => e.char)));
+      localStorage.setItem(
+        this.recentsKey(),
+        JSON.stringify(this.recents.map((e) => e.char)),
+      );
     } catch {
       // localStorage can be unavailable (private browsing, quota) — recents
       // are a nice-to-have, so fail silently rather than break the picker.
