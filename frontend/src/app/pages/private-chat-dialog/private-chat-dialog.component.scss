@@ -271,39 +271,23 @@ button {
 .reaction-popover {
   position: absolute;
   left: 1rem;
-  right: 1rem;
+  right: auto;
   bottom: calc(100% + 0.55rem);
+
+  width: 320px;
+  max-width: calc(100% - 2rem);
+  box-sizing: border-box;
+
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 0.75rem;
   box-shadow: 0 14px 36px
     color-mix(in srgb, var(--color-shadow-md) 60%, transparent);
-  padding: 0.7rem;
+
+  padding: 0.4rem;
   z-index: 2;
-}
 
-.emoji-grid {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(2rem, 1fr));
-  gap: 0.35rem;
-}
-
-.emoji-option {
-  aspect-ratio: 1;
-  border-radius: 0.5rem;
-  border: 1px solid transparent;
-  background: transparent;
-  font-size: 1.35rem;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  &:hover,
-  &:focus-visible {
-    border-color: var(--color-border-hover);
-    background: var(--color-surface-hover);
-  }
+  overflow: hidden;
 }
 
 .sticker-grid {
@@ -361,11 +345,10 @@ button {
 
   .reaction-popover {
     left: 0.75rem;
-    right: 0.75rem;
-  }
+    right: auto;
 
-  .emoji-grid {
-    grid-template-columns: repeat(4, minmax(2.4rem, 1fr));
+    width: 320px;
+    max-width: calc(100% - 1.5rem);
   }
 
   .sticker-grid {

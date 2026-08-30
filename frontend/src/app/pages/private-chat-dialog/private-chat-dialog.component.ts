@@ -27,11 +27,12 @@ import { UserService } from '../../services/user.service';
 import { GroupDto } from '../../models/dtos/GroupDto';
 import { UserDto } from '../../models/dtos/UserDto';
 import {
-  CHAT_EMOJIS,
   CHAT_STICKERS,
   ChatSticker,
   findChatSticker,
 } from './chat-reactions';
+
+import { EmojiPickerComponent } from './emoji-picker/emoji-picker.component';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { renderChatMarkdown } from './chat-markdown';
 
@@ -80,7 +81,7 @@ type ParsedDecryptedMessageBody = {
 @Component({
   selector: 'app-private-chat-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, EmojiPickerComponent],
   templateUrl: './private-chat-dialog.component.html',
   styleUrls: ['./private-chat-dialog.component.scss'],
 })
@@ -119,7 +120,6 @@ export class PrivateChatDialogComponent
   matchedMessageIndexes: number[] = [];
   private matchedMessageIndexSet = new Set<number>();
   activeMatchPosition = -1;
-  readonly emojis = CHAT_EMOJIS;
   readonly stickers = CHAT_STICKERS;
   isEmojiPickerOpen = false;
   isStickerPickerOpen = false;
