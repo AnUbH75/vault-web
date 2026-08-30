@@ -26,11 +26,7 @@ import { GroupService } from '../../services/group.service';
 import { UserService } from '../../services/user.service';
 import { GroupDto } from '../../models/dtos/GroupDto';
 import { UserDto } from '../../models/dtos/UserDto';
-import {
-  CHAT_STICKERS,
-  ChatSticker,
-  findChatSticker,
-} from './chat-reactions';
+import { CHAT_STICKERS, ChatSticker, findChatSticker } from './chat-reactions';
 
 import { EmojiPickerComponent } from './emoji-picker/emoji-picker.component';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
