@@ -1,0 +1,25 @@
+.emoji-picker { display: flex; flex-direction: column; width: 320px; max-height: 360px; }
+
+.emoji-picker-search {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--surface-border, #e5e7eb);
+  input { flex: 1; border: none; outline: none; background: transparent; font-size: 0.875rem; color: var(--text-color); }
+}
+
+.emoji-picker-tabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--surface-border, #e5e7eb); }
+
+.emoji-picker-tab {
+  flex: 0 0 auto; padding: 0.4rem 0.6rem; border: none; background: transparent;
+  font-size: 1rem; cursor: pointer; opacity: 0.6;
+  &.is-active { opacity: 1; border-bottom: 2px solid var(--primary-color); }
+}
+
+.emoji-picker-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.15rem; padding: 0.5rem; overflow-y: auto; }
+
+.emoji-picker-option {
+  border: none; background: transparent; font-size: 1.25rem; line-height: 1;
+  padding: 0.35rem; border-radius: 6px; cursor: pointer;
+  &:hover, &:focus-visible { background: var(--surface-c, #f3f4f6); outline: none; }
+}
+
+.emoji-picker-empty { grid-column: 1 / -1; text-align: center; font-size: 0.8rem; color: var(--text-color-secondary); padding: 1rem 0; }
