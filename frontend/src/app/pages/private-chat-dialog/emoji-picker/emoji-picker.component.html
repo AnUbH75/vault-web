@@ -1,0 +1,57 @@
+<div class="emoji-picker" role="dialog" aria-label="Emoji picker">
+  <div class="emoji-picker-search">
+    <i class="pi pi-search"></i>
+    <input
+      #searchInput
+      type="text"
+      [(ngModel)]="searchQuery"
+      placeholder="Search emoji"
+      aria-label="Search emoji"
+      autocomplete="off"
+    />
+  </div>
+
+  <div class="emoji-picker-tabs" *ngIf="!searchQuery.trim()" role="tablist">
+    <button
+      *ngIf="recents.length"
+      type="button"
+      class="emoji-picker-tab"
+      [class.is-active]="activeCategory === 'recent'"
+      (click)="selectCategory('recent')"
+      aria-label="Recently used"
+      title="Recently used"
+    >
+      🕓
+    </button>
+    <button
+      *ngFor="let category of categories"
+      type="button"
+      class="emoji-picker-tab"
+      [class.is-active]="activeCategory === category.id"
+      (click)="selectCategory(category.id)"
+      [attr.aria-label]="category.label"
+      [title]="category.label"
+    >
+      {{ category.icon }}
+    </button>
+  </div>
+
+  <div class="emoji-picker-grid" role="listbox" aria-label="Emoji results">
+    <button
+      #emojiButton
+      *ngFor="let emoji of visibleEmojis; let i = index"
+      type="button"
+      class="emoji-picker-option"
+      (click)="select(emoji)"
+      (keydown)="onGridKeydown($event, i)"
+      [attr.aria-label]="emoji.name"
+      [title]="emoji.name"
+    >
+      {{ emoji.char }}
+    </button>
+
+    <div *ngIf="!visibleEmojis.length" class="emoji-picker-empty">
+      No emoji found
+    </div>
+  </div>
+</div>

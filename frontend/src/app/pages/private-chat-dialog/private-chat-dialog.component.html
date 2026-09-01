@@ -202,21 +202,11 @@
         *ngIf="isEmojiPickerOpen || isStickerPickerOpen"
         class="reaction-popover"
       >
-        <div
+        <app-emoji-picker
           *ngIf="isEmojiPickerOpen"
-          class="emoji-grid"
-          aria-label="Emoji picker"
-        >
-          <button
-            *ngFor="let emoji of emojis"
-            type="button"
-            class="emoji-option"
-            (click)="insertEmoji(emoji)"
-            [attr.aria-label]="'Insert ' + emoji"
-          >
-            {{ emoji }}
-          </button>
-        </div>
+          [storageKey]="currentUsername || 'anonymous'"
+          (emojiSelected)="insertEmoji($event)"
+        ></app-emoji-picker>
 
         <div
           *ngIf="isStickerPickerOpen"
@@ -245,6 +235,7 @@
       >
         <i class="pi pi-face-smile"></i>
       </button>
+
       <button
         type="button"
         class="composer-tool-btn"
@@ -255,6 +246,7 @@
       >
         <i class="pi pi-image"></i>
       </button>
+
       <input
         #messageInput
         type="text"
@@ -266,6 +258,7 @@
         autocomplete="off"
         (focus)="closeReactionPickers()"
       />
+
       <button
         type="submit"
         class="send-btn px-5 bg-[var(--primary-color)] text-[var(--primary-color-text)] font-bold rounded-r-md transition hover:opacity-90"

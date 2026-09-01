@@ -19,6 +19,7 @@ import { WebSocketService } from '../../services/web-socket.service';
 import { PrivateChatDialogComponent } from './private-chat-dialog.component';
 import { GroupService } from '../../services/group.service';
 import { UserService } from '../../services/user.service';
+import { By } from '@angular/platform-browser';
 
 describe('PrivateChatDialogComponent typing indicators', () => {
   let fixture: ComponentFixture<PrivateChatDialogComponent>;
@@ -528,5 +529,238 @@ describe('PrivateChatDialogComponent duplicate message detection', () => {
 
     expect(component.messages.length).toBe(1);
     discardPeriodicTasks();
+  }));
+});
+
+describe('PrivateChatDialogComponent emoji picker', () => {
+  let fixture: ComponentFixture<PrivateChatDialogComponent>;
+  let component: PrivateChatDialogComponent;
+
+  beforeEach(async () => {
+    const typingEvents = new Subject<TypingIndicatorDto>();
+    const wsService = jasmine.createSpyObj<WebSocketService>(
+      'WebSocketService',
+      [
+        'subscribeToPrivateMessages',
+        'subscribeToTypingIndicators',
+        'sendTypingIndicator',
+        'ensureConnected',
+        'sendPrivateMessage',
+        'sendGroupMessage',
+        'subscribeToGroupMessages',
+      ],
+    );
+    wsService.subscribeToPrivateMessages.and.returnValue(of<ChatMessageDto>());
+    wsService.subscribeToGroupMessages.and.returnValue(of<ChatMessageDto>());
+    wsService.subscribeToTypingIndicators.and.returnValue(
+      typingEvents.asObservable(),
+    );
+    wsService.sendTypingIndicator.and.returnValue(true);
+    wsService.ensureConnected.and.resolveTo(true);
+    wsService.sendPrivateMessage.and.returnValue(true);
+    wsService.sendGroupMessage.and.returnValue(true);
+
+    const chatService = jasmine.createSpyObj<PrivateChatService>(
+      'PrivateChatService',
+      ['getMessages', 'getDevices'],
+    );
+    chatService.getMessages.and.returnValue(of([]));
+    chatService.getDevices.and.returnValue(of<DeviceDto[]>([]));
+
+    const groupChatService = jasmine.createSpyObj<GroupChatService>(
+      'GroupChatService',
+      ['getMessages', 'getDevices'],
+    );
+    groupChatService.getMessages.and.returnValue(of([]));
+    groupChatService.getDevices.and.returnValue(of<DeviceDto[]>([]));
+
+    const e2eeService = jasmine.createSpyObj<E2eeService>('E2eeService', [
+      'ensureDeviceRegistered',
+      'encryptForDevices',
+      'decryptPayload',
+    ]);
+    e2eeService.ensureDeviceRegistered.and.resolveTo();
+
+    const toast = jasmine.createSpyObj<UiToastService>('UiToastService', [
+      'error',
+      'warn',
+    ]);
+
+    const groupService = jasmine.createSpyObj<GroupService>('GroupService', [
+      'getGroupDetails',
+    ]);
+    const userService = jasmine.createSpyObj<UserService>('UserService', [
+      'getProfilePictureUrl',
+    ]);
+
+    await TestBed.configureTestingModule({
+      imports: [PrivateChatDialogComponent],
+      providers: [
+        { provide: WebSocketService, useValue: wsService },
+        { provide: PrivateChatService, useValue: chatService },
+        { provide: GroupChatService, useValue: groupChatService },
+        { provide: E2eeService, useValue: e2eeService },
+        { provide: UiToastService, useValue: toast },
+        { provide: GroupService, useValue: groupService },
+        { provide: UserService, useValue: userService },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(PrivateChatDialogComponent);
+    component = fixture.componentInstance;
+    component.username = 'bob';
+    component.currentUsername = 'alice';
+    component.privateChatId = 10;
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    fixture.destroy();
+  });
+
+  it('toggles the emoji picker open and closed', () => {
+    expect(component.isEmojiPickerOpen).toBe(false);
+
+    component.toggleEmojiPicker();
+    expect(component.isEmojiPickerOpen).toBe(true);
+
+    component.toggleEmojiPicker();
+    expect(component.isEmojiPickerOpen).toBe(false);
+  });
+
+  it('renders app-emoji-picker only while the picker is open', () => {
+    expect(fixture.debugElement.query(By.css('app-emoji-picker'))).toBeFalsy();
+
+    component.toggleEmojiPicker();
+    fixture.detectChanges();
+
+    expect(fixture.debugElement.query(By.css('app-emoji-picker'))).toBeTruthy();
+  });
+
+  it('passes the current username as the storageKey to the emoji picker', () => {
+    component.toggleEmojiPicker();
+    fixture.detectChanges();
+
+    const picker = fixture.debugElement.query(By.css('app-emoji-picker'));
+    expect(picker.componentInstance.storageKey).toBe('alice');
+  });
+
+  describe('insertEmoji (caret-position insertion)', () => {
+    function setCaret(el: HTMLTextAreaElement, position: number): void {
+      el.setSelectionRange(position, position);
+    }
+
+    it('inserts the emoji at the caret position, splitting the surrounding text', fakeAsync(() => {
+      component.newMessage = 'hello world';
+      fixture.detectChanges();
+
+      const input = (component as any).messageInput
+        .nativeElement as HTMLTextAreaElement;
+      input.value = component.newMessage;
+      setCaret(input, 5); // right after "hello"
+
+      component.insertEmoji('😀');
+      tick();
+
+      expect(component.newMessage).toBe('hello😀 world');
+    }));
+
+    it('inserts at the very start when the caret is at position 0', fakeAsync(() => {
+      component.newMessage = 'world';
+      fixture.detectChanges();
+
+      const input = (component as any).messageInput
+        .nativeElement as HTMLTextAreaElement;
+      input.value = component.newMessage;
+      setCaret(input, 0);
+
+      component.insertEmoji('👍');
+      tick();
+
+      expect(component.newMessage).toBe('👍world');
+    }));
+
+    it('inserts at the end when the caret is at the end of the text', fakeAsync(() => {
+      component.newMessage = 'hello';
+      fixture.detectChanges();
+
+      const input = (component as any).messageInput
+        .nativeElement as HTMLTextAreaElement;
+      input.value = component.newMessage;
+      setCaret(input, input.value.length);
+
+      component.insertEmoji('🔥');
+      tick();
+
+      expect(component.newMessage).toBe('hello🔥');
+    }));
+
+    it('replaces a selected range rather than inserting alongside it', fakeAsync(() => {
+      component.newMessage = 'hello world';
+      fixture.detectChanges();
+
+      const input = (component as any).messageInput
+        .nativeElement as HTMLTextAreaElement;
+      input.value = component.newMessage;
+      input.setSelectionRange(0, 5); // select "hello"
+
+      component.insertEmoji('👋');
+      tick();
+
+      expect(component.newMessage).toBe('👋 world');
+    }));
+
+    it('refocuses the message input after inserting an emoji', fakeAsync(() => {
+      component.newMessage = 'hi';
+      fixture.detectChanges();
+
+      const input = (component as any).messageInput
+        .nativeElement as HTMLTextAreaElement;
+      input.value = component.newMessage;
+      setCaret(input, 2);
+
+      component.insertEmoji('🎉');
+      tick();
+
+      expect(document.activeElement).toBe(input);
+    }));
+
+    it('moves the caret to just after the inserted emoji', fakeAsync(() => {
+      component.newMessage = 'hi there';
+      fixture.detectChanges();
+
+      const input = (component as any).messageInput
+        .nativeElement as HTMLTextAreaElement;
+      input.value = component.newMessage;
+      setCaret(input, 2); // right after "hi"
+
+      component.insertEmoji('🎉');
+      tick();
+
+      const expectedCaret = 'hi🎉'.length;
+      expect(input.selectionStart).toBe(expectedCaret);
+      expect(input.selectionEnd).toBe(expectedCaret);
+    }));
+  });
+
+  it('wires the emoji picker output to insertEmoji', fakeAsync(() => {
+    component.newMessage = 'test';
+    fixture.detectChanges();
+
+    const input = (component as any).messageInput
+      .nativeElement as HTMLTextAreaElement;
+    input.value = component.newMessage;
+    input.setSelectionRange(4, 4);
+
+    const insertSpy = spyOn(component, 'insertEmoji').and.callThrough();
+
+    component.toggleEmojiPicker();
+    fixture.detectChanges();
+
+    const picker = fixture.debugElement.query(By.css('app-emoji-picker'));
+    picker.triggerEventHandler('emojiSelected', '😀');
+    tick();
+
+    expect(insertSpy).toHaveBeenCalledWith('😀');
   }));
 });
