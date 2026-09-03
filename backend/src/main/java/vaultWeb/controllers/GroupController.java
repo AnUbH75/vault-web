@@ -124,7 +124,7 @@ public class GroupController {
   public ResponseEntity<List<ChatMessageDto>> getGroupMessages(
       @PathVariable Long id, Authentication authentication) {
     User currentUser = getAuthenticatedGroupMember(id, authentication);
-    List<ChatMessage> messages = chatMessageRepository.findByGroupIdOrderByTimestampAsc(id);
+    List<ChatMessage> messages = chatMessageRepository.findByGroupIdAndDeletedFalseOrderByTimestampAsc(id);
 
     List<ChatMessageDto> response =
         messages.stream()
