@@ -162,7 +162,7 @@
             <button
               *ngIf="msg.senderUsername === currentUsername && !msg.deleted"
               type="button"
-              class="delete-message-inline text-[10px] opacity-0 group-hover:opacity-70 hover:!opacity-100 transition-opacity"
+              class="delete-message-inline text-[10px] opacity-0 pointer-coarse:opacity-70 group-hover:opacity-70 hover:!opacity-100 transition-opacity"
               (click)="deleteMessage(msg)"
               aria-label="Delete message"
               title="Delete message"
