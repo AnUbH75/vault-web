@@ -1,16 +1,20 @@
 package vaultWeb.controllers;
 
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Controller;
+import vaultWeb.dtos.ChatErrorDto;
 import vaultWeb.dtos.ChatMessageDeletedDto;
 import vaultWeb.dtos.ChatMessageDto;
 import vaultWeb.exceptions.UnauthorizedException;
@@ -124,5 +128,30 @@ public class ChatController {
           user ->
               messagingTemplate.convertAndSendToUser(user, "/queue/private/deleted", responseDto));
     }
+  }
+
+  /**
+   * Reports failures from STOMP handlers in this controller back to the client.
+   *
+   * <p>Unlike {@code @RestController} endpoints, {@code @MessageMapping} methods have no automatic
+   * exception-to-response translation: an uncaught exception here is only logged server-side and
+   * the caller's socket receives nothing, leaving the client's UI in a stale state (e.g. a message
+   * the user tried to delete silently stays visible after an already-deleted or not-the-sender
+   * failure). This handler catches the failure modes {@link #deleteMessage} and {@link
+   * #sendMessage} can throw and relays them to the user's private error queue.
+   */
+  @MessageExceptionHandler({
+    EntityNotFoundException.class,
+    AccessDeniedException.class,
+    UnauthorizedException.class,
+    IllegalArgumentException.class
+  })
+  @SendToUser("/queue/errors")
+  public ChatErrorDto handleChatException(Exception ex, Principal principal) {
+    log.warn(
+        "Chat operation failed for user {}: {}",
+        principal != null ? principal.getName() : "unauthenticated",
+        ex.getMessage());
+    return new ChatErrorDto(ex.getMessage());
   }
 }
