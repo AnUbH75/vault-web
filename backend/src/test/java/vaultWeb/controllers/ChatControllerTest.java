@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.persistence.EntityNotFoundException;
 import java.security.Principal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
+import vaultWeb.dtos.ChatErrorDto;
 import vaultWeb.dtos.ChatMessageDeletedDto;
 import vaultWeb.dtos.ChatMessageDto;
 import vaultWeb.exceptions.UnauthorizedException;
@@ -190,5 +192,51 @@ class ChatControllerTest {
     message.setE2eePayload(E2EE_PAYLOAD);
     message.setTimestamp(java.time.Instant.parse("2026-03-26T10:15:30Z"));
     return message;
+  }
+
+  // --- handleChatException ---
+
+  @Test
+  void shouldReportEntityNotFound_asChatErrorDto() {
+    Principal principal = () -> "alice";
+    EntityNotFoundException ex = new EntityNotFoundException("Chat message not found");
+
+    ChatErrorDto result = chatController.handleChatException(ex, principal);
+
+    assertEquals("Chat message not found", result.getError());
+  }
+
+  @Test
+  void shouldReportAccessDenied_asChatErrorDto() {
+    Principal principal = () -> "mallory";
+    AccessDeniedException ex = new AccessDeniedException("You can only delete your own messages");
+
+    ChatErrorDto result = chatController.handleChatException(ex, principal);
+
+    assertEquals("You can only delete your own messages", result.getError());
+  }
+
+  @Test
+  void shouldReportUnauthorized_asChatErrorDto_evenWithNullPrincipal() {
+    UnauthorizedException ex = new UnauthorizedException("User not authenticated");
+
+    // principal is null here by construction: this is exactly the case where
+    // UnauthorizedException is thrown in this controller. The handler must not
+    // throw itself (e.g. a NullPointerException on principal.getName()) just
+    // because there's no authenticated session to log a username for.
+    ChatErrorDto result = chatController.handleChatException(ex, null);
+
+    assertEquals("User not authenticated", result.getError());
+  }
+
+  @Test
+  void shouldReportIllegalArgument_asChatErrorDto() {
+    Principal principal = () -> "alice";
+    IllegalArgumentException ex =
+        new IllegalArgumentException("Group ID is required for group messages");
+
+    ChatErrorDto result = chatController.handleChatException(ex, principal);
+
+    assertEquals("Group ID is required for group messages", result.getError());
   }
 }

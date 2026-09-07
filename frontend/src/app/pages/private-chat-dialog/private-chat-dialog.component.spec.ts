@@ -11,6 +11,7 @@ import { of, Subject } from 'rxjs';
 import { UiToastService } from '../../core/services/ui-toast.service';
 import { ChatMessageDto } from '../../models/dtos/ChatMessageDto';
 import { ChatMessageDeletedDto } from '../../models/dtos/ChatMessageDeletedDto';
+import { ChatErrorDto } from '../../models/dtos/ChatErrorDto';
 import { TypingIndicatorDto } from '../../models/dtos/TypingIndicatorDto';
 import { DeviceDto } from '../../models/dtos/DeviceDto';
 import { E2eeService } from '../../services/e2ee.service';
@@ -41,6 +42,7 @@ describe('PrivateChatDialogComponent typing indicators', () => {
       'subscribeToDeletedPrivateMessages',
       'subscribeToDeletedGroupMessages',
       'sendDeleteMessage',
+      'subscribeToChatErrors',
     ]);
     wsService.subscribeToPrivateMessages.and.returnValue(of<ChatMessageDto>());
     wsService.subscribeToGroupMessages.and.returnValue(of<ChatMessageDto>());
@@ -58,6 +60,7 @@ describe('PrivateChatDialogComponent typing indicators', () => {
     wsService.sendPrivateMessage.and.returnValue(true);
     wsService.sendGroupMessage.and.returnValue(true);
     wsService.sendDeleteMessage.and.returnValue(true);
+    wsService.subscribeToChatErrors.and.returnValue(of<ChatErrorDto>());
 
     const chatService = jasmine.createSpyObj<PrivateChatService>(
       'PrivateChatService',
@@ -179,6 +182,7 @@ describe('PrivateChatDialogComponent formatMessage', () => {
         'subscribeToDeletedPrivateMessages',
         'subscribeToDeletedGroupMessages',
         'sendDeleteMessage',
+        'subscribeToChatErrors',
       ],
     );
     wsService.subscribeToPrivateMessages.and.returnValue(of<ChatMessageDto>());
@@ -197,6 +201,7 @@ describe('PrivateChatDialogComponent formatMessage', () => {
     wsService.sendPrivateMessage.and.returnValue(true);
     wsService.sendGroupMessage.and.returnValue(true);
     wsService.sendDeleteMessage.and.returnValue(true);
+    wsService.subscribeToChatErrors.and.returnValue(of<ChatErrorDto>());
 
     const chatService = jasmine.createSpyObj<PrivateChatService>(
       'PrivateChatService',
@@ -347,6 +352,7 @@ describe('PrivateChatDialogComponent duplicate message detection', () => {
       'subscribeToDeletedPrivateMessages',
       'subscribeToDeletedGroupMessages',
       'sendDeleteMessage',
+      'subscribeToChatErrors',
     ]);
     wsService.subscribeToPrivateMessages.and.returnValue(
       privateMessages.asObservable(),
@@ -368,6 +374,7 @@ describe('PrivateChatDialogComponent duplicate message detection', () => {
     wsService.sendPrivateMessage.and.returnValue(true);
     wsService.sendGroupMessage.and.returnValue(true);
     wsService.sendDeleteMessage.and.returnValue(true);
+    wsService.subscribeToChatErrors.and.returnValue(of<ChatErrorDto>());
 
     const chatService = jasmine.createSpyObj<PrivateChatService>(
       'PrivateChatService',
@@ -567,11 +574,13 @@ describe('PrivateChatDialogComponent message deletion', () => {
   let fixture: ComponentFixture<PrivateChatDialogComponent>;
   let component: PrivateChatDialogComponent;
   let deletedPrivateMessages: Subject<ChatMessageDeletedDto>;
+  let chatErrors: Subject<ChatErrorDto>;
   let wsService: jasmine.SpyObj<WebSocketService>;
   let toast: jasmine.SpyObj<UiToastService>;
 
   beforeEach(async () => {
     deletedPrivateMessages = new Subject<ChatMessageDeletedDto>();
+    chatErrors = new Subject<ChatErrorDto>();
     wsService = jasmine.createSpyObj<WebSocketService>('WebSocketService', [
       'subscribeToPrivateMessages',
       'subscribeToTypingIndicators',
@@ -583,6 +592,7 @@ describe('PrivateChatDialogComponent message deletion', () => {
       'subscribeToDeletedPrivateMessages',
       'subscribeToDeletedGroupMessages',
       'sendDeleteMessage',
+      'subscribeToChatErrors',
     ]);
     wsService.subscribeToPrivateMessages.and.returnValue(of<ChatMessageDto>());
     wsService.subscribeToGroupMessages.and.returnValue(of<ChatMessageDto>());
@@ -600,6 +610,7 @@ describe('PrivateChatDialogComponent message deletion', () => {
     wsService.sendPrivateMessage.and.returnValue(true);
     wsService.sendGroupMessage.and.returnValue(true);
     wsService.sendDeleteMessage.and.returnValue(true);
+    wsService.subscribeToChatErrors.and.returnValue(chatErrors.asObservable());
 
     const chatService = jasmine.createSpyObj<PrivateChatService>(
       'PrivateChatService',
@@ -659,7 +670,7 @@ describe('PrivateChatDialogComponent message deletion', () => {
     fixture.destroy();
   });
 
-  function ownMessage(overrides: Partial<any> = {}) {
+  function ownMessage(overrides: Partial<any> = {}): any {
     return {
       senderUsername: 'alice',
       privateChatId: 10,
@@ -667,7 +678,7 @@ describe('PrivateChatDialogComponent message deletion', () => {
       timestamp: '2026-08-19T10:00:00.000Z',
       clientMessageId: 'own-msg-1',
       content: 'hi there',
-      kind: 'text' as const,
+      kind: 'text',
       ...overrides,
     };
   }
@@ -770,6 +781,26 @@ describe('PrivateChatDialogComponent message deletion', () => {
       expect(first.content).toBe('first');
     });
   });
+
+  describe('handling a backend-reported chat error', () => {
+    it('shows an error toast with the server-provided message when a delete fails server-side', () => {
+      chatErrors.next({ error: 'You can only delete your own messages' });
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'Action failed',
+        'You can only delete your own messages',
+      );
+    });
+
+    it('falls back to a generic message if the server sends an empty error string', () => {
+      chatErrors.next({ error: '' });
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'Action failed',
+        'Something went wrong.',
+      );
+    });
+  });
 });
 
 describe('PrivateChatDialogComponent emoji picker', () => {
@@ -791,6 +822,7 @@ describe('PrivateChatDialogComponent emoji picker', () => {
         'subscribeToDeletedPrivateMessages',
         'subscribeToDeletedGroupMessages',
         'sendDeleteMessage',
+        'subscribeToChatErrors',
       ],
     );
     wsService.subscribeToPrivateMessages.and.returnValue(of<ChatMessageDto>());
@@ -809,6 +841,7 @@ describe('PrivateChatDialogComponent emoji picker', () => {
     wsService.sendPrivateMessage.and.returnValue(true);
     wsService.sendGroupMessage.and.returnValue(true);
     wsService.sendDeleteMessage.and.returnValue(true);
+    wsService.subscribeToChatErrors.and.returnValue(of<ChatErrorDto>());
 
     const chatService = jasmine.createSpyObj<PrivateChatService>(
       'PrivateChatService',
