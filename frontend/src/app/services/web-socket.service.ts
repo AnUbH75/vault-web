@@ -7,6 +7,7 @@ import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
 import { Observable, Observer } from 'rxjs';
 import { ChatMessageDeletedDto } from '../models/dtos/ChatMessageDeletedDto';
+import { ChatErrorDto } from '../models/dtos/ChatErrorDto';
 
 @Injectable({
   providedIn: 'root',
@@ -151,6 +152,54 @@ export class WebSocketService {
       console.warn('WebSocket not connected yet. Message not sent.');
       return false;
     }
+  }
+
+  subscribeToChatErrors(): Observable<ChatErrorDto> {
+    return new Observable((observer) => {
+      const subscribeAction = () => {
+        return this.subscribeToChatErrorsInternal(observer);
+      };
+
+      let unsubscribeFn: (() => void) | undefined;
+      let isUnsubscribed = false;
+      let queuedSubscribe: (() => void) | undefined;
+
+      if (!this.connected) {
+        queuedSubscribe = () => {
+          if (isUnsubscribed) {
+            return;
+          }
+          unsubscribeFn = subscribeAction();
+        };
+        this.connectCallbacks.push(queuedSubscribe);
+      } else {
+        unsubscribeFn = subscribeAction();
+      }
+
+      return () => {
+        isUnsubscribed = true;
+        if (!unsubscribeFn && queuedSubscribe) {
+          this.connectCallbacks = this.connectCallbacks.filter(
+            (cb) => cb !== queuedSubscribe,
+          );
+        }
+        if (unsubscribeFn) {
+          unsubscribeFn();
+        }
+      };
+    });
+  }
+
+  private subscribeToChatErrorsInternal(observer: Observer<ChatErrorDto>) {
+    const subscription = this.client?.subscribe(
+      '/user/queue/errors',
+      (message) => {
+        const event = JSON.parse(message.body) as ChatErrorDto;
+        observer.next(event);
+      },
+    );
+
+    return () => subscription?.unsubscribe();
   }
 
   sendDeleteMessage(clientMessageId: string): boolean {

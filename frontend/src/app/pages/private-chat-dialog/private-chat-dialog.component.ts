@@ -15,6 +15,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ChatMessageDto } from '../../models/dtos/ChatMessageDto';
 import { ChatMessageDeletedDto } from '../../models/dtos/ChatMessageDeletedDto';
+import { ChatErrorDto } from '../../models/dtos/ChatErrorDto';
 import { TypingIndicatorDto } from '../../models/dtos/TypingIndicatorDto';
 import { WebSocketService } from '../../services/web-socket.service';
 import { PrivateChatService } from '../../services/private-chat.service';
@@ -112,6 +113,7 @@ export class PrivateChatDialogComponent
   private messageSub?: Subscription;
   private deletedMessageSub?: Subscription;
   private typingIndicatorSub?: Subscription;
+  private chatErrorSub?: Subscription;
 
   private shouldScroll = false;
   isSearchOpen = false;
@@ -156,6 +158,9 @@ export class PrivateChatDialogComponent
 
     this.messageSub = this.subscribeToActiveMessages();
     this.deletedMessageSub = this.subscribeToActiveDeletedMessages();
+    this.chatErrorSub = this.wsService
+      .subscribeToChatErrors()
+      .subscribe((event) => this.handleChatError(event));
 
     this.typingIndicatorSub = this.wsService
       .subscribeToTypingIndicators()
@@ -172,6 +177,7 @@ export class PrivateChatDialogComponent
     this.stopTyping();
     this.messageSub?.unsubscribe();
     this.deletedMessageSub?.unsubscribe();
+    this.chatErrorSub?.unsubscribe();
     this.typingIndicatorSub?.unsubscribe();
     this.clearTypingTimers();
   }
@@ -378,6 +384,10 @@ export class PrivateChatDialogComponent
           err,
         );
       });
+  }
+
+  private handleChatError(event: ChatErrorDto): void {
+    this.toast.error('Action failed', event.error || 'Something went wrong.');
   }
 
   private handleDeletedMessage(event: ChatMessageDeletedDto): void {
