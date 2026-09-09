@@ -15,14 +15,9 @@ import vaultWeb.dtos.ChatMessageDto;
 import vaultWeb.exceptions.UnauthorizedException;
 import vaultWeb.models.ChatMessage;
 import vaultWeb.repositories.GroupMemberRepository;
+import vaultWeb.repositories.PrivateChatRepository;
 import vaultWeb.services.ChatService;
 
-/**
- * Controller responsible for handling WebSocket-based chat functionality.
- *
- * <p>Supports both group chat and private messages. Messages are first persisted via ChatService
- * and then dispatched to the corresponding topics or users.
- */
 @Slf4j
 @Controller
 @RequiredArgsConstructor
@@ -31,13 +26,8 @@ public class ChatController {
   private final SimpMessagingTemplate messagingTemplate;
   private final ChatService chatService;
   private final GroupMemberRepository groupMemberRepository;
+  private final PrivateChatRepository privateChatRepository;
 
-  /**
-   * Handles incoming group chat messages from clients and broadcasts them to all subscribers of the
-   * specified group topic.
-   *
-   * @param messageDto DTO containing message content, sender information, and target group
-   */
   @MessageMapping("/chat.send")
   public void sendMessage(@Valid @Payload ChatMessageDto messageDto, Principal principal) {
     authorizeGroupMessage(messageDto, principal);
@@ -68,14 +58,9 @@ public class ChatController {
     messageDto.setSenderUsername(username);
   }
 
-  /**
-   * Handles incoming private chat messages from clients and sends them to both users of the private
-   * chat. The message content is end-to-end encrypted and never decrypted by the server.
-   *
-   * @param messageDto DTO containing message content, sender information, and private chat ID
-   */
   @MessageMapping("/chat.private.send")
-  public void sendPrivateMessage(@Valid @Payload ChatMessageDto messageDto) {
+  public void sendPrivateMessage(@Valid @Payload ChatMessageDto messageDto, Principal principal) {
+    authorizePrivateMessage(messageDto, principal);
     ChatMessage savedMessage = chatService.saveMessage(messageDto);
 
     ChatMessageDto responseDto = chatService.toDto(savedMessage);
@@ -94,5 +79,25 @@ public class ChatController {
         "Private message sent from {} to privateChat {}",
         responseDto.getSenderUsername(),
         responseDto.getPrivateChatId());
+  }
+
+  private void authorizePrivateMessage(ChatMessageDto messageDto, Principal principal) {
+    if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+      throw new UnauthorizedException("User not authenticated");
+    }
+    if (messageDto.getPrivateChatId() == null) {
+      throw new IllegalArgumentException("Private chat ID is required for private messages");
+    }
+
+    String username = principal.getName();
+    boolean isParticipant =
+        privateChatRepository.existsByIdAndParticipantUsername(
+            messageDto.getPrivateChatId(), username);
+    if (!isParticipant) {
+      throw new AccessDeniedException("Not allowed to send messages to this private chat");
+    }
+
+    messageDto.setSenderId(null);
+    messageDto.setSenderUsername(username);
   }
 }
