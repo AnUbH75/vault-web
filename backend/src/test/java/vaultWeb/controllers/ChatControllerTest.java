@@ -160,7 +160,8 @@ class ChatControllerTest {
     verify(chatService).saveMessage(dtoCaptor.capture());
     assertEquals("alice", dtoCaptor.getValue().getSenderUsername());
     assertEquals(null, dtoCaptor.getValue().getSenderId());
-  // --- deleteMessage ---
+    // --- deleteMessage ---
+  }
 
   @Test
   void shouldBroadcastGroupDelete_toDedicatedDeletedTopic_notNormalMessageTopic() {
@@ -271,6 +272,15 @@ class ChatControllerTest {
 
     User sender = new User();
     sender.setUsername(user1Username);
+
+    ChatMessage message = new ChatMessage();
+    message.setPrivateChat(privateChat);
+    message.setSender(sender);
+    message.setSenderDeviceId(SENDER_DEVICE_ID);
+    message.setE2eePayload(E2EE_PAYLOAD);
+    message.setTimestamp(java.time.Instant.parse("2026-03-26T10:15:30Z"));
+    return message;
+  }
 
   private ChatMessage createSavedPrivateMessage(String username1, String username2) {
     User sender = new User();

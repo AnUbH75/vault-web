@@ -104,6 +104,8 @@ public class ChatController {
 
     messageDto.setSenderId(null);
     messageDto.setSenderUsername(username);
+  }
+
   @MessageMapping("/chat.delete")
   public void deleteMessage(@Payload String clientMessageId, Principal principal) {
 
