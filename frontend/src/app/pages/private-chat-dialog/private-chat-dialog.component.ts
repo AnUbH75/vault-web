@@ -14,6 +14,8 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ChatMessageDto } from '../../models/dtos/ChatMessageDto';
+import { ChatMessageDeletedDto } from '../../models/dtos/ChatMessageDeletedDto';
+import { ChatErrorDto } from '../../models/dtos/ChatErrorDto';
 import { TypingIndicatorDto } from '../../models/dtos/TypingIndicatorDto';
 import { WebSocketService } from '../../services/web-socket.service';
 import { PrivateChatService } from '../../services/private-chat.service';
@@ -43,6 +45,7 @@ interface ChatMessageView {
   groupId?: number | null;
   timestamp: string;
   clientMessageId?: string;
+  deleted?: boolean;
 }
 
 interface EncryptedMessageBodyV1 {
@@ -108,7 +111,9 @@ export class PrivateChatDialogComponent
     ElementRef<HTMLDivElement>
   >;
   private messageSub?: Subscription;
+  private deletedMessageSub?: Subscription;
   private typingIndicatorSub?: Subscription;
+  private chatErrorSub?: Subscription;
 
   private shouldScroll = false;
   isSearchOpen = false;
@@ -152,6 +157,10 @@ export class PrivateChatDialogComponent
     this.loadMessages();
 
     this.messageSub = this.subscribeToActiveMessages();
+    this.deletedMessageSub = this.subscribeToActiveDeletedMessages();
+    this.chatErrorSub = this.wsService
+      .subscribeToChatErrors()
+      .subscribe((event) => this.handleChatError(event));
 
     this.typingIndicatorSub = this.wsService
       .subscribeToTypingIndicators()
@@ -167,6 +176,8 @@ export class PrivateChatDialogComponent
   ngOnDestroy(): void {
     this.stopTyping();
     this.messageSub?.unsubscribe();
+    this.deletedMessageSub?.unsubscribe();
+    this.chatErrorSub?.unsubscribe();
     this.typingIndicatorSub?.unsubscribe();
     this.clearTypingTimers();
   }
@@ -210,18 +221,30 @@ export class PrivateChatDialogComponent
     if (this.isGroupChat && this.groupId) {
       return this.wsService
         .subscribeToGroupMessages(this.groupId)
-        .subscribe((msg) => {
-          if (msg.groupId === this.groupId) {
-            this.decryptAndAppendMessage(msg);
+        .subscribe((event) => {
+          if (event.groupId === this.groupId) {
+            this.decryptAndAppendMessage(event);
           }
         });
     }
 
-    return this.wsService.subscribeToPrivateMessages().subscribe((msg) => {
-      if (msg.privateChatId === this.privateChatId) {
-        this.decryptAndAppendMessage(msg);
+    return this.wsService.subscribeToPrivateMessages().subscribe((event) => {
+      if (event.privateChatId === this.privateChatId) {
+        this.decryptAndAppendMessage(event);
       }
     });
+  }
+
+  private subscribeToActiveDeletedMessages(): Subscription {
+    if (this.isGroupChat && this.groupId) {
+      return this.wsService
+        .subscribeToDeletedGroupMessages(this.groupId)
+        .subscribe((event) => this.handleDeletedMessage(event));
+    }
+
+    return this.wsService
+      .subscribeToDeletedPrivateMessages()
+      .subscribe((event) => this.handleDeletedMessage(event));
   }
 
   ngAfterViewChecked(): void {
@@ -245,6 +268,29 @@ export class PrivateChatDialogComponent
 
     this.stopTyping();
     void this.sendEncryptedTextMessage(this.newMessage);
+  }
+
+  deleteMessage(message: ChatMessageView): void {
+    if (
+      message.senderUsername !== this.currentUsername ||
+      !message.clientMessageId ||
+      message.deleted
+    ) {
+      return;
+    }
+
+    if (!confirm('Delete this message?')) {
+      return;
+    }
+
+    const sent = this.wsService.sendDeleteMessage(message.clientMessageId);
+
+    if (!sent) {
+      this.toast.error(
+        'Message not deleted',
+        'Connection unavailable. Please try again.',
+      );
+    }
   }
 
   onClose(): void {
@@ -340,10 +386,32 @@ export class PrivateChatDialogComponent
       });
   }
 
+  private handleChatError(event: ChatErrorDto): void {
+    this.toast.error('Action failed', event.error || 'Something went wrong.');
+  }
+
+  private handleDeletedMessage(event: ChatMessageDeletedDto): void {
+    this.messages = this.messages.map((message) =>
+      message.clientMessageId === event.clientMessageId
+        ? {
+            ...message,
+            deleted: true,
+            content: 'Message deleted',
+            stickerId: undefined,
+            stickerSrc: undefined,
+            stickerLabel: undefined,
+          }
+        : message,
+    );
+
+    this.applySearch();
+  }
+
   private decryptAndAppendMessage(message: ChatMessageDto): void {
     if (this.isDuplicateMessage(message)) {
       return;
     }
+
     this.toViewMessage(message)
       .then((viewMessage) => {
         if (!viewMessage) {
@@ -353,10 +421,13 @@ export class PrivateChatDialogComponent
           );
           return;
         }
+
         this.messages.push(viewMessage);
+
         if (viewMessage.senderUsername !== this.currentUsername) {
           this.typingUsers.delete(viewMessage.senderUsername ?? '');
         }
+
         this.applySearch();
         this.shouldScroll = !this.searchQuery.trim();
       })
@@ -386,9 +457,11 @@ export class PrivateChatDialogComponent
       const parsed = this.parseDecryptedMessageBody(decrypted);
       content = parsed.text;
       kind = parsed.kind;
+
       if (parsed.clientTimestamp) {
         timestamp = parsed.clientTimestamp;
       }
+
       if (parsed.kind === 'sticker' && parsed.stickerId) {
         const sticker = findChatSticker(parsed.stickerId);
         stickerId = parsed.stickerId;
@@ -396,6 +469,7 @@ export class PrivateChatDialogComponent
         stickerLabel = parsed.stickerLabel ?? sticker?.label ?? 'Sticker';
       }
     }
+
     if (!content) {
       content = message.e2eePayload
         ? 'Unable to decrypt message'
@@ -418,6 +492,7 @@ export class PrivateChatDialogComponent
 
   insertEmoji(emoji: string): void {
     const input = this.messageInput?.nativeElement;
+
     if (!input) {
       this.newMessage += emoji;
       return;
@@ -425,8 +500,10 @@ export class PrivateChatDialogComponent
 
     const start = input.selectionStart ?? this.newMessage.length;
     const end = input.selectionEnd ?? start;
+
     this.newMessage =
       this.newMessage.slice(0, start) + emoji + this.newMessage.slice(end);
+
     this.closeReactionPickers();
 
     setTimeout(() => {
@@ -484,6 +561,7 @@ export class PrivateChatDialogComponent
 
       if (!this.devices.length) {
         this.devices = await this.fetchDevices(true);
+
         if (!this.devices.length) {
           console.error('No devices available for encryption');
           this.toast.error(
@@ -495,6 +573,7 @@ export class PrivateChatDialogComponent
       }
 
       const clientTimestamp = new Date().toISOString();
+
       const encryptedBody:
         | EncryptedTextMessageBodyV2
         | EncryptedStickerMessageBodyV2 = {
@@ -502,6 +581,7 @@ export class PrivateChatDialogComponent
         ...body,
         clientTimestamp,
       };
+
       const payload = await this.e2eeService.encryptForDevices(
         JSON.stringify(encryptedBody),
         this.devices,
@@ -519,6 +599,7 @@ export class PrivateChatDialogComponent
       };
 
       const isConnected = await this.wsService.ensureConnected();
+
       if (!isConnected) {
         console.error('WebSocket not connected. Message not sent.');
         this.toast.error(
@@ -531,6 +612,7 @@ export class PrivateChatDialogComponent
       const sent = this.isGroupChat
         ? this.wsService.sendGroupMessage(message)
         : this.wsService.sendPrivateMessage(message);
+
       if (!sent) {
         console.error('WebSocket not connected. Message not sent.');
         this.toast.error(
@@ -539,7 +621,9 @@ export class PrivateChatDialogComponent
         );
         return;
       }
+
       this.decryptAndAppendMessage(message);
+
       if (body.kind === 'text') {
         this.newMessage = '';
       }
@@ -556,11 +640,14 @@ export class PrivateChatDialogComponent
   private fetchDevices(forceRefresh = false): Promise<DeviceDto[]> {
     const isCacheFresh =
       Date.now() - this.lastDevicesRefreshAt < this.devicesCacheTtlMs;
+
     if (!forceRefresh && this.devices.length && isCacheFresh) {
       return Promise.resolve(this.devices);
     }
+
     return new Promise<DeviceDto[]>((resolve) => {
       const conversationId = this.activeConversationId;
+
       if (!conversationId) {
         resolve([]);
         return;
@@ -583,8 +670,9 @@ export class PrivateChatDialogComponent
     });
   }
 
-  toggleSearch() {
+  toggleSearch(): void {
     this.isSearchOpen = !this.isSearchOpen;
+
     if (this.isSearchOpen) {
       setTimeout(() => this.searchInput?.nativeElement.focus(), 0);
     } else {
@@ -608,6 +696,7 @@ export class PrivateChatDialogComponent
       .map((msg, index) => ({ index, content: msg.content.toLowerCase() }))
       .filter((entry) => entry.content.includes(query))
       .map((entry) => entry.index);
+
     this.matchedMessageIndexSet = new Set(this.matchedMessageIndexes);
 
     this.activeMatchPosition = this.matchedMessageIndexes.length ? 0 : -1;
@@ -618,8 +707,10 @@ export class PrivateChatDialogComponent
     if (!this.matchedMessageIndexes.length) {
       return;
     }
+
     this.activeMatchPosition =
       (this.activeMatchPosition + 1) % this.matchedMessageIndexes.length;
+
     this.scrollToActiveSearchMatch();
   }
 
@@ -627,9 +718,11 @@ export class PrivateChatDialogComponent
     if (!this.matchedMessageIndexes.length) {
       return;
     }
+
     this.activeMatchPosition =
       (this.activeMatchPosition - 1 + this.matchedMessageIndexes.length) %
       this.matchedMessageIndexes.length;
+
     this.scrollToActiveSearchMatch();
   }
 
@@ -637,6 +730,7 @@ export class PrivateChatDialogComponent
     if (!this.searchQuery.trim() || !this.matchedMessageIndexes.length) {
       return `0 / ${this.matchedMessageIndexes.length}`;
     }
+
     return `${this.activeMatchPosition + 1} / ${this.matchedMessageIndexes.length}`;
   }
 
@@ -648,6 +742,7 @@ export class PrivateChatDialogComponent
     if (this.activeMatchPosition < 0) {
       return false;
     }
+
     return this.matchedMessageIndexes[this.activeMatchPosition] === index;
   }
 
@@ -658,6 +753,7 @@ export class PrivateChatDialogComponent
 
     const messageIndex = this.matchedMessageIndexes[this.activeMatchPosition];
     const bubble = this.messageBubbles.get(messageIndex)?.nativeElement;
+
     if (!bubble) {
       return;
     }
@@ -678,12 +774,14 @@ export class PrivateChatDialogComponent
         | EncryptedTextMessageBodyV2
         | EncryptedStickerMessageBodyV2
       >;
+
       if (parsed.v === 1 && typeof parsed.text === 'string') {
         const timestamp =
           typeof parsed.clientTimestamp === 'string' &&
           !Number.isNaN(Date.parse(parsed.clientTimestamp))
             ? parsed.clientTimestamp
             : null;
+
         return {
           kind: 'text',
           text: parsed.text,
@@ -713,10 +811,12 @@ export class PrivateChatDialogComponent
         typeof parsed.stickerId === 'string'
       ) {
         const sticker = findChatSticker(parsed.stickerId);
+
         const label =
           typeof parsed.alt === 'string' && parsed.alt.trim()
             ? parsed.alt
             : (sticker?.label ?? 'Sticker');
+
         return {
           kind: 'sticker',
           text: label,
@@ -758,12 +858,14 @@ export class PrivateChatDialogComponent
     }
 
     const cached = this.formattedMessages.get(content);
+
     if (cached !== undefined) {
       return cached;
     }
 
     const cleanHtml = renderChatMarkdown(content);
     const formatted = this.sanitizer.bypassSecurityTrustHtml(cleanHtml);
+
     this.formattedMessages.set(content, formatted);
     return formatted;
   }
@@ -794,6 +896,7 @@ export class PrivateChatDialogComponent
     if (!senderUsername) {
       return null;
     }
+
     return senderUsername === this.currentUsername
       ? this.currentUserPicUrl
       : this.otherUserPicUrl;
@@ -803,6 +906,7 @@ export class PrivateChatDialogComponent
     if (senderUsername) {
       return senderUsername.charAt(0).toUpperCase();
     }
+
     return '?';
   }
 
@@ -832,6 +936,7 @@ export class PrivateChatDialogComponent
     if (this.typingIdleTimer) {
       clearTimeout(this.typingIdleTimer);
     }
+
     this.typingIdleTimer = setTimeout(
       () => this.stopTyping(),
       this.typingIdleTimeoutMs,
@@ -868,6 +973,7 @@ export class PrivateChatDialogComponent
 
   private removeStaleTypingUsers(): void {
     const now = Date.now();
+
     Array.from(this.typingUsers.entries()).forEach(([username, expiresAt]) => {
       if (expiresAt <= now) {
         this.typingUsers.delete(username);
@@ -880,6 +986,7 @@ export class PrivateChatDialogComponent
       clearTimeout(this.typingIdleTimer);
       this.typingIdleTimer = null;
     }
+
     if (this.typingStaleSweepTimer) {
       clearInterval(this.typingStaleSweepTimer);
       this.typingStaleSweepTimer = null;
@@ -889,6 +996,7 @@ export class PrivateChatDialogComponent
   // Group Management Methods
   toggleGroupDetails(): void {
     this.showGroupDetails = !this.showGroupDetails;
+
     if (this.showGroupDetails) {
       this.loadGroupDetails();
       this.loadAllUsers();
@@ -897,16 +1005,20 @@ export class PrivateChatDialogComponent
 
   loadGroupDetails(): void {
     if (!this.groupId) return;
+
     this.groupService.getGroupDetails(this.groupId).subscribe({
       next: (group) => {
         this.groupDetails = group;
+
         const currentMember = group.members?.find(
           (m) => m.user.username === this.currentUsername,
         );
+
         if (currentMember) {
           this.currentUserRole = currentMember.role;
           this.isGroupAdmin = currentMember.role === 'ADMIN';
         }
+
         this.filterInviteUsers();
       },
       error: (err) => {
@@ -929,14 +1041,17 @@ export class PrivateChatDialogComponent
       this.usersToInvite = [];
       return;
     }
+
     const memberIds = new Set(
       this.groupDetails.members?.map((m) => m.user.id) || [],
     );
+
     this.usersToInvite = this.allUsers.filter((u) => !memberIds.has(u.id));
   }
 
   addMemberToGroup(userId: number): void {
     if (!this.groupId) return;
+
     this.groupService.addMember(this.groupId, userId).subscribe({
       next: () => {
         this.toast.success('Member added', 'User was added to the group.');
@@ -952,6 +1067,7 @@ export class PrivateChatDialogComponent
 
   removeMemberFromGroup(userId: number): void {
     if (!this.groupId) return;
+
     this.groupService.removeMember(this.groupId, userId).subscribe({
       next: () => {
         this.toast.success(
@@ -973,6 +1089,7 @@ export class PrivateChatDialogComponent
 
   leaveGroup(): void {
     if (!this.groupId) return;
+
     this.groupService.leaveGroup(this.groupId).subscribe({
       next: () => {
         this.toast.success('Group left', 'You left the group.');

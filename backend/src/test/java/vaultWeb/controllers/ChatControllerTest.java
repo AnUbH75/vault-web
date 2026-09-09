@@ -3,11 +3,13 @@ package vaultWeb.controllers;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.persistence.EntityNotFoundException;
 import java.security.Principal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,6 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
+import vaultWeb.dtos.ChatErrorDto;
+import vaultWeb.dtos.ChatMessageDeletedDto;
 import vaultWeb.dtos.ChatMessageDto;
 import vaultWeb.exceptions.UnauthorizedException;
 import vaultWeb.models.ChatMessage;
@@ -156,6 +160,70 @@ class ChatControllerTest {
     verify(chatService).saveMessage(dtoCaptor.capture());
     assertEquals("alice", dtoCaptor.getValue().getSenderUsername());
     assertEquals(null, dtoCaptor.getValue().getSenderId());
+  // --- deleteMessage ---
+
+  @Test
+  void shouldBroadcastGroupDelete_toDedicatedDeletedTopic_notNormalMessageTopic() {
+    Principal principal = () -> "alice";
+    ChatMessage deletedMessage = createSavedGroupMessage(20L, "alice");
+    deletedMessage.setClientMessageId("client-uuid-1");
+
+    when(chatService.deleteMessage("client-uuid-1", "alice")).thenReturn(deletedMessage);
+
+    chatController.deleteMessage("client-uuid-1", principal);
+
+    // Regression test: delete events must go to their own destination, since
+    // reusing the normal message topic caused every incoming normal message
+    // (which also carries a clientMessageId) to be misread as a deletion.
+    verify(messagingTemplate)
+        .convertAndSend(eq("/topic/group/20/deleted"), any(ChatMessageDeletedDto.class));
+    verify(messagingTemplate, never())
+        .convertAndSend(eq("/topic/group/20"), any(ChatMessageDeletedDto.class));
+    verify(messagingTemplate, never())
+        .convertAndSendToUser(anyString(), anyString(), any(ChatMessageDeletedDto.class));
+  }
+
+  @Test
+  void shouldBroadcastPrivateDelete_toDedicatedDeletedQueue_notNormalMessageQueue() {
+    Principal principal = () -> "alice";
+    ChatMessage deletedMessage = createSavedPrivateMessage("alice", "bob");
+    deletedMessage.setClientMessageId("client-uuid-2");
+
+    when(chatService.deleteMessage("client-uuid-2", "alice")).thenReturn(deletedMessage);
+
+    chatController.deleteMessage("client-uuid-2", principal);
+
+    verify(messagingTemplate)
+        .convertAndSendToUser(
+            eq("alice"), eq("/queue/private/deleted"), any(ChatMessageDeletedDto.class));
+    verify(messagingTemplate)
+        .convertAndSendToUser(
+            eq("bob"), eq("/queue/private/deleted"), any(ChatMessageDeletedDto.class));
+    verify(messagingTemplate, never())
+        .convertAndSendToUser(anyString(), eq("/queue/private"), any(ChatMessageDeletedDto.class));
+    verify(messagingTemplate, never())
+        .convertAndSend(anyString(), any(ChatMessageDeletedDto.class));
+  }
+
+  @Test
+  void shouldPassSenderUsername_toChatServiceDeleteMessage() {
+    Principal principal = () -> "alice";
+    ChatMessage deletedMessage = createSavedGroupMessage(20L, "alice");
+
+    when(chatService.deleteMessage("client-uuid-3", "alice")).thenReturn(deletedMessage);
+
+    chatController.deleteMessage("client-uuid-3", principal);
+
+    verify(chatService).deleteMessage("client-uuid-3", "alice");
+  }
+
+  @Test
+  void shouldRejectDelete_WhenUnauthenticated() {
+    assertThrows(
+        UnauthorizedException.class, () -> chatController.deleteMessage("client-uuid-4", null));
+    verify(chatService, never()).deleteMessage(any(), any());
+    verify(messagingTemplate, never()).convertAndSend(any(String.class), any(Object.class));
+    verify(messagingTemplate, never()).convertAndSendToUser(any(), any(), any());
   }
 
   private ChatMessageDto createGroupMessageRequest(Long groupId) {
@@ -204,6 +272,16 @@ class ChatControllerTest {
     User sender = new User();
     sender.setUsername(user1Username);
 
+  private ChatMessage createSavedPrivateMessage(String username1, String username2) {
+    User sender = new User();
+    sender.setUsername(username1);
+    User user1 = new User();
+    user1.setUsername(username1);
+    User user2 = new User();
+    user2.setUsername(username2);
+    PrivateChat privateChat = new PrivateChat();
+    privateChat.setUser1(user1);
+    privateChat.setUser2(user2);
     ChatMessage message = new ChatMessage();
     message.setPrivateChat(privateChat);
     message.setSender(sender);
@@ -211,5 +289,51 @@ class ChatControllerTest {
     message.setE2eePayload(E2EE_PAYLOAD);
     message.setTimestamp(java.time.Instant.parse("2026-03-26T10:15:30Z"));
     return message;
+  }
+
+  // --- handleChatException ---
+
+  @Test
+  void shouldReportEntityNotFound_asChatErrorDto() {
+    Principal principal = () -> "alice";
+    EntityNotFoundException ex = new EntityNotFoundException("Chat message not found");
+
+    ChatErrorDto result = chatController.handleChatException(ex, principal);
+
+    assertEquals("Chat message not found", result.getError());
+  }
+
+  @Test
+  void shouldReportAccessDenied_asChatErrorDto() {
+    Principal principal = () -> "mallory";
+    AccessDeniedException ex = new AccessDeniedException("You can only delete your own messages");
+
+    ChatErrorDto result = chatController.handleChatException(ex, principal);
+
+    assertEquals("You can only delete your own messages", result.getError());
+  }
+
+  @Test
+  void shouldReportUnauthorized_asChatErrorDto_evenWithNullPrincipal() {
+    UnauthorizedException ex = new UnauthorizedException("User not authenticated");
+
+    // principal is null here by construction: this is exactly the case where
+    // UnauthorizedException is thrown in this controller. The handler must not
+    // throw itself (e.g. a NullPointerException on principal.getName()) just
+    // because there's no authenticated session to log a username for.
+    ChatErrorDto result = chatController.handleChatException(ex, null);
+
+    assertEquals("User not authenticated", result.getError());
+  }
+
+  @Test
+  void shouldReportIllegalArgument_asChatErrorDto() {
+    Principal principal = () -> "alice";
+    IllegalArgumentException ex =
+        new IllegalArgumentException("Group ID is required for group messages");
+
+    ChatErrorDto result = chatController.handleChatException(ex, principal);
+
+    assertEquals("Group ID is required for group messages", result.getError());
   }
 }
