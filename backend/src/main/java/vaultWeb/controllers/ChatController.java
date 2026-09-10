@@ -23,6 +23,12 @@ import vaultWeb.repositories.GroupMemberRepository;
 import vaultWeb.repositories.PrivateChatRepository;
 import vaultWeb.services.ChatService;
 
+/**
+ * Controller responsible for handling WebSocket-based chat functionality.
+ *
+ * <p>Supports both group chat and private messages. Messages are first persisted via ChatService
+ * and then dispatched to the corresponding topics or users.
+ */
 @Slf4j
 @Controller
 @RequiredArgsConstructor
@@ -33,6 +39,12 @@ public class ChatController {
   private final GroupMemberRepository groupMemberRepository;
   private final PrivateChatRepository privateChatRepository;
 
+  /**
+   * Handles incoming group chat messages from clients and broadcasts them to all subscribers of the
+   * specified group topic.
+   *
+   * @param messageDto DTO containing message content, sender information, and target group
+   */
   @MessageMapping("/chat.send")
   public void sendMessage(@Valid @Payload ChatMessageDto messageDto, Principal principal) {
     authorizeGroupMessage(messageDto, principal);
@@ -63,6 +75,12 @@ public class ChatController {
     messageDto.setSenderUsername(username);
   }
 
+  /**
+   * Handles incoming private chat messages from clients and sends them to both users of the private
+   * chat. The message content is end-to-end encrypted and never decrypted by the server.
+   *
+   * @param messageDto DTO containing message content, sender information, and private chat ID
+   */
   @MessageMapping("/chat.private.send")
   public void sendPrivateMessage(@Valid @Payload ChatMessageDto messageDto, Principal principal) {
     authorizePrivateMessage(messageDto, principal);
