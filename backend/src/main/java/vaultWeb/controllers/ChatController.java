@@ -20,6 +20,7 @@ import vaultWeb.dtos.ChatMessageDto;
 import vaultWeb.exceptions.UnauthorizedException;
 import vaultWeb.models.ChatMessage;
 import vaultWeb.repositories.GroupMemberRepository;
+import vaultWeb.repositories.PrivateChatRepository;
 import vaultWeb.services.ChatService;
 
 /**
@@ -36,6 +37,7 @@ public class ChatController {
   private final SimpMessagingTemplate messagingTemplate;
   private final ChatService chatService;
   private final GroupMemberRepository groupMemberRepository;
+  private final PrivateChatRepository privateChatRepository;
 
   /**
    * Handles incoming group chat messages from clients and broadcasts them to all subscribers of the
@@ -80,7 +82,8 @@ public class ChatController {
    * @param messageDto DTO containing message content, sender information, and private chat ID
    */
   @MessageMapping("/chat.private.send")
-  public void sendPrivateMessage(@Valid @Payload ChatMessageDto messageDto) {
+  public void sendPrivateMessage(@Valid @Payload ChatMessageDto messageDto, Principal principal) {
+    authorizePrivateMessage(messageDto, principal);
     ChatMessage savedMessage = chatService.saveMessage(messageDto);
 
     ChatMessageDto responseDto = chatService.toDto(savedMessage);
@@ -99,6 +102,26 @@ public class ChatController {
         "Private message sent from {} to privateChat {}",
         responseDto.getSenderUsername(),
         responseDto.getPrivateChatId());
+  }
+
+  private void authorizePrivateMessage(ChatMessageDto messageDto, Principal principal) {
+    if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+      throw new UnauthorizedException("User not authenticated");
+    }
+    if (messageDto.getPrivateChatId() == null) {
+      throw new IllegalArgumentException("Private chat ID is required for private messages");
+    }
+
+    String username = principal.getName();
+    boolean isParticipant =
+        privateChatRepository.existsByIdAndParticipantUsername(
+            messageDto.getPrivateChatId(), username);
+    if (!isParticipant) {
+      throw new AccessDeniedException("Not allowed to send messages to this private chat");
+    }
+
+    messageDto.setSenderId(null);
+    messageDto.setSenderUsername(username);
   }
 
   @MessageMapping("/chat.delete")
