@@ -35,7 +35,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import vaultWeb.security.MediaTokenService;
-import vaultWeb.services.media.CloudPageMediaClient;
+import vaultWeb.services.CloudPageMediaClient;
 
 /**
  * MediaController is deliberately reachable at /api/media/stream/** without an Authorization header
