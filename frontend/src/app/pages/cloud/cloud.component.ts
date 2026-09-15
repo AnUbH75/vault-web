@@ -2227,10 +2227,24 @@ export class CloudComponent implements OnInit, OnDestroy {
   // and video/audio are new — previously these fell through to a plain download
   // since no in-browser preview path existed for them at all.
   private readonly streamableExt = new Set([
-    'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg',
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'bmp',
+    'webp',
+    'svg',
     'pdf',
-    'mp4', 'webm', 'mov', 'ogg', 'ogv',
-    'mp3', 'wav', 'flac', 'm4a', 'aac',
+    'mp4',
+    'webm',
+    'mov',
+    'ogg',
+    'ogv',
+    'mp3',
+    'wav',
+    'flac',
+    'm4a',
+    'aac',
   ]);
 
   previewFile(file: FileDto) {

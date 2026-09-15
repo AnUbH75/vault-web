@@ -213,10 +213,10 @@ export class CloudService {
   getMediaStreamUrl(relativePath: string): Observable<string> {
     const path = this.normalizePath(relativePath);
     return this.http
-      .post<{ token: string; expiresIn: number }>(
-        `${environment.mainApiUrl}/media/token`,
-        { path },
-      )
+      .post<{
+        token: string;
+        expiresIn: number;
+      }>(`${environment.mainApiUrl}/media/token`, { path })
       .pipe(
         map((res) => `${environment.mainApiUrl}/media/stream/${res.token}`),
       );
