@@ -187,3 +187,48 @@ describe('CloudService Secure Send', () => {
     req.flush(new Blob(['zip'], { type: 'application/zip' }));
   });
 });
+
+describe('CloudService searchInFolder', () => {
+  let service: CloudService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [HttpClientTestingModule],
+      providers: [CloudService],
+    });
+    service = TestBed.inject(CloudService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
+  });
+
+  it('should send folderPath, query and maxResults as query params', () => {
+    service.searchInFolder('', 'report', 5).subscribe();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/folders/search'));
+    expect(req.request.method).toBe('GET');
+    expect(req.request.params.get('folderPath')).toBe('/');
+    expect(req.request.params.get('query')).toBe('report');
+    expect(req.request.params.get('maxResults')).toBe('5');
+    req.flush([]);
+  });
+
+  it('should show the global error page for server errors by default', () => {
+    service.searchInFolder('/', 'report').subscribe();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/folders/search'));
+    expect(req.request.context.get(SKIP_GLOBAL_ERROR_PAGE)).toBeFalse();
+    req.flush([]);
+  });
+
+  it('should skip the global error page when preserveErrorInPage is true', () => {
+    service.searchInFolder('/', 'report', 8, true).subscribe();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/folders/search'));
+    expect(req.request.context.get(SKIP_GLOBAL_ERROR_PAGE)).toBeTrue();
+    req.flush([]);
+  });
+});

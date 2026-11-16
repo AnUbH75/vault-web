@@ -108,6 +108,7 @@ export class CloudService {
     folderPath: string,
     query: string,
     maxResults = 20,
+    preserveErrorInPage = false,
   ): Observable<SearchResultDto[]> {
     const params = new HttpParams()
       .set('folderPath', this.normalizePath(folderPath))
@@ -115,6 +116,10 @@ export class CloudService {
       .set('maxResults', String(maxResults));
     return this.http.get<SearchResultDto[]>(`${this.apiUrl}/folders/search`, {
       params,
+      context: new HttpContext().set(
+        SKIP_GLOBAL_ERROR_PAGE,
+        preserveErrorInPage,
+      ),
     });
   }
 
