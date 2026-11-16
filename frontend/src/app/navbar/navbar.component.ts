@@ -9,6 +9,7 @@ import {
   ExternalDomainLink,
   resolveExternalLinkUrl,
 } from '../config/external-domains.config';
+import { ExternalLinkService } from '../core/services/external-link.service';
 
 @Component({
   selector: 'app-navbar',
@@ -30,6 +31,7 @@ export class NavbarComponent implements OnInit {
     public themeService: ThemeService,
     public authService: AuthService,
     private userService: UserService,
+    private externalLinkService: ExternalLinkService,
   ) {}
 
   /**
@@ -112,15 +114,7 @@ export class NavbarComponent implements OnInit {
     }
 
     event.preventDefault();
-    this.authService.refresh().subscribe({
-      next: (res) => {
-        this.authService.saveToken(res.token);
-        window.location.assign(resolveExternalLinkUrl(link, res.token));
-      },
-      error: () => {
-        window.location.assign(this.externalLinkUrl(link));
-      },
-    });
+    this.externalLinkService.openWithFreshToken(link);
   }
 
   logout(): void {
